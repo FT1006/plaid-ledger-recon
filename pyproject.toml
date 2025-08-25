@@ -40,19 +40,42 @@ packages = ["etl"]
 [tool.ruff]
 target-version = "py311"
 line-length = 88
+src = ["etl", "tests"]
+fix = true
+unsafe-fixes = false
 
 [tool.ruff.lint]
-select = ["E", "W", "F", "I", "N", "UP", "ANN", "S", "B", "A", "C4", "DTZ", "T10", "EM", "G", "PIE", "T20", "PYI", "PT", "Q", "RSE", "RET", "SLF", "SIM", "TID", "TCH", "INT", "ARG", "PTH", "TD", "PD", "PGH", "PL", "TRY", "FLY", "PERF", "FURB", "RUF"]
+select = [
+  "E","W","F","I","N","UP","ANN","S","B","A","C4","DTZ","T10","EM","G","PIE",
+  "T20","Q","RSE","RET","SLF","SIM","TID","TCH","INT","ARG","PTH","TD","PGH",
+  "PL","TRY","FLY","PERF","FURB","RUF"
+]
 ignore = ["S101"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["etl"]
+
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["S101", "PLR2004", "ANN"]
-"cli.py" = ["ARG001"]
+"etl/__init__.py" = ["F401"]
+"cli.py" = ["ARG001", "T201"]
+"tests/**/*.py" = ["S101", "PLR2004", "ANN", "T201"]
+
+[tool.ruff.format]
+preview = true
+docstring-code-format = true
 
 [tool.mypy]
 python_version = "3.11"
 strict = true
 warn_unreachable = true
+plugins = [
+  "pydantic.mypy",
+  "sqlalchemy.ext.mypy.plugin",
+]
+
+[[tool.mypy.overrides]]
+module = "weasyprint.*"
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

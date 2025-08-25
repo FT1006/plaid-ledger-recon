@@ -69,8 +69,7 @@ class TestExtract:
             # First call has no cursor, second call has cursor
             if call_count == 1:
                 return httpx.Response(200, json=page1_response)
-            else:
-                return httpx.Response(200, json=page2_response)
+            return httpx.Response(200, json=page2_response)
 
         with respx.mock:
             respx.post("https://sandbox.plaid.com/transactions/sync").mock(

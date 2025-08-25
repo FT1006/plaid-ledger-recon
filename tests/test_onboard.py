@@ -3,9 +3,8 @@ from typing import Any
 
 import httpx
 import respx
-from typer.testing import CliRunner
-
 from cli import app  # Typer app
+from typer.testing import CliRunner
 
 runner = CliRunner()
 
