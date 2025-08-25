@@ -1,3 +1,5 @@
+"""Plaid API client with connection management and credential handling."""
+
 import os
 from types import TracebackType
 from typing import Self
@@ -9,6 +11,8 @@ __all__ = ["PlaidClient", "PlaidCredentials", "create_plaid_client_from_env"]
 
 
 class PlaidCredentials(BaseModel):
+    """Plaid API credentials configuration."""
+
     client_id: str
     secret: str
     env: str
@@ -18,6 +22,7 @@ class PlaidClient:
     """Plaid API client with ADR-specified timeouts: 5s connect, 15s read."""
 
     def __init__(self, credentials: PlaidCredentials) -> None:
+        """Initialize Plaid client with credentials and timeouts."""
         self.credentials = credentials
         self.base_url = self._get_base_url(credentials.env)
         self.client = httpx.Client(
@@ -71,6 +76,7 @@ class PlaidClient:
         self.client.close()
 
     def __enter__(self) -> Self:
+        """Context manager entry."""
         return self
 
     def __exit__(
@@ -79,6 +85,7 @@ class PlaidClient:
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
     ) -> None:
+        """Context manager exit - clean up httpx client."""
         self.close()
 
 

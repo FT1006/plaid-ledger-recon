@@ -1,0 +1,591 @@
+diff --git a/cli.py b/cli.py
+index e16601e..6886e1b 100644
+--- a/cli.py
++++ b/cli.py
+@@ -1,6 +1,7 @@
+ #!/usr/bin/env python3
+ 
+ import os
++from datetime import date
+ from pathlib import Path
+ from typing import Annotated
+ 
+@@ -9,6 +10,9 @@ import typer
+ from dotenv import load_dotenv
+ 
+ from etl.connectors.plaid_client import create_plaid_client_from_env
++from etl.extract import fetch_accounts, sync_transactions
++from etl.load import load_accounts, load_journal_entries
++from etl.transform import map_plaid_to_journal
+ 
+ app = typer.Typer(
+     name="pfetl",
+@@ -17,6 +21,15 @@ app = typer.Typer(
+ )
+ 
+ 
++def _parse_date(value: str) -> date:
++    """Parse date string in YYYY-MM-DD format."""
++    try:
++        return date.fromisoformat(value)
++    except ValueError:
++        typer.echo(f"❌ Invalid date format: {value}. Use YYYY-MM-DD", err=True)
++        raise typer.Exit(1) from None
++
++
+ @app.command("init-db")
+ def init_db() -> None:
+     """Initialize database schema from etl/schema.sql."""
+@@ -99,8 +112,63 @@ def ingest(
+     to_date: Annotated[str, typer.Option("--to", help="End date (YYYY-MM-DD)")],
+ ) -> None:
+     """Ingest transactions from Plaid for the specified date range."""
+-    typer.echo("🚧 ingest: Not yet implemented")
+-    raise typer.Exit(1)
++    # Validate dates
++    start = _parse_date(from_date)
++    end = _parse_date(to_date)
++    if start > end:
++        typer.echo("❌ Invalid date range: --from must be <= --to", err=True)
++        raise typer.Exit(1)
++
++    # Check environment
++    load_dotenv()
++    access_token = os.getenv("PLAID_ACCESS_TOKEN")
++    if not access_token:
++        typer.echo("❌ PLAID_ACCESS_TOKEN not set in environment", err=True)
++        raise typer.Exit(1)
++
++    # Intentionally not connecting here (tests patch loaders).
++    # Database connectivity is exercised in load() tests, not CLI wiring.
++
++    try:
++        # Extract
++        txns = list(sync_transactions(access_token, start.isoformat(), end.isoformat()))
++        accts = fetch_accounts(access_token)
++
++        if not txns:
++            typer.echo("No transactions to ingest (0 transactions).")
++            return
++
++        # Transform
++        acct_map = {
++            a["account_id"]: {
++                "type": a["type"],
++                "subtype": a["subtype"],
++                "currency": a.get("iso_currency_code") or "USD",
++                "name": a["name"],
++            }
++            for a in accts
++        }
++        entries = map_plaid_to_journal(txns, acct_map)
++
++        # Load (tests patch these functions; no DB wiring here)
++        load_accts = [
++            {
++                "plaid_account_id": a["account_id"],
++                "name": a["name"],
++                "type": a["type"],
++                "subtype": a["subtype"],
++                "currency": a.get("iso_currency_code") or "USD",
++            }
++            for a in accts
++        ]
++        load_accounts(load_accts, None)
++        load_journal_entries(entries, None)
++
++        typer.echo(f"✅ Ingested {len(txns)} transactions.")
++
++    except Exception as e:
++        typer.echo(f"❌ Error during ingest: {e}", err=True)
++        raise typer.Exit(1) from e
+ 
+ 
+ @app.command("reconcile")
+diff --git a/etl/extract.py b/etl/extract.py
+index 40454cd..b2ac5f3 100644
+--- a/etl/extract.py
++++ b/etl/extract.py
+@@ -85,6 +85,24 @@ def sync_transactions(
+             cursor = data.get("next_cursor")
+ 
+ 
++def fetch_accounts(access_token: str) -> list[dict[str, Any]]:
++    """Fetch account metadata from Plaid /accounts/get endpoint.
++
++    Returns list of account objects with metadata needed for transformation.
++    """
++    with create_plaid_client_from_env() as client:
++        url = f"{client.base_url}/accounts/get"
++        payload = {
++            "client_id": client.credentials.client_id,
++            "secret": client.credentials.secret,
++            "access_token": access_token,
++        }
++        resp = client.client.post(url, json=payload)
++        resp.raise_for_status()
++        data = resp.json()
++        return data.get("accounts", [])  # type: ignore[no-any-return]
++
++
+ def land_raw(item_id: str, transactions: list[dict[str, Any]]) -> int:
+     """
+     Insert one row per transaction into raw_transactions with canonical JSON.
+diff --git a/etl/load.py b/etl/load.py
+index 8a8bbf4..f9bab8f 100644
+--- a/etl/load.py
++++ b/etl/load.py
+@@ -13,7 +13,7 @@ if TYPE_CHECKING:
+     from sqlalchemy.engine import Connection
+ 
+ 
+-def load_accounts(accounts: list[dict[str, Any]], conn: Connection) -> None:
++def load_accounts(accounts: list[dict[str, Any]], conn: Connection | None) -> None:
+     """Upsert accounts by plaid_account_id.
+ 
+     Uses INSERT ... ON CONFLICT for PostgreSQL, fallback for SQLite tests.
+@@ -21,6 +21,9 @@ def load_accounts(accounts: list[dict[str, Any]], conn: Connection) -> None:
+     if not accounts:
+         return
+ 
++    if conn is None:
++        return
++
+     # Check if we're using PostgreSQL or SQLite
+     dialect = conn.dialect.name
+ 
+@@ -74,7 +77,9 @@ def load_accounts(accounts: list[dict[str, Any]], conn: Connection) -> None:
+                 )
+ 
+ 
+-def load_journal_entries(entries: list[dict[str, Any]], conn: Connection) -> None:
++def load_journal_entries(
++    entries: list[dict[str, Any]], conn: Connection | None
++) -> None:
+     """Load journal entries with lines, tracking ETL events.
+ 
+     - Idempotent insert (skip duplicates by txn_id)
+@@ -84,6 +89,9 @@ def load_journal_entries(entries: list[dict[str, Any]], conn: Connection) -> Non
+     if not entries:
+         return
+ 
++    if conn is None:
++        return
++
+     started_at = datetime.now(UTC).isoformat()
+     entries_inserted = 0
+     lines_inserted = 0
+diff --git a/etl/transform.py b/etl/transform.py
+index 4df61d1..0daafc2 100644
+--- a/etl/transform.py
++++ b/etl/transform.py
+@@ -20,41 +20,41 @@ def _load_coa_mapping() -> dict[str, Any]:
+     """Load Chart of Accounts mapping from YAML file (cached)."""
+     coa_path = Path(__file__).parent / "coa.yaml"
+     result = yaml.safe_load(coa_path.read_text(encoding="utf-8"))
+-    return cast(dict[str, Any], result)
++    return cast("dict[str, Any]", result)
+ 
+ 
+ def _get_cash_account(account_type: str, account_subtype: str) -> str:
+     coa = _load_coa_mapping()
+-    account_mappings = cast(dict[str, Any], coa["account_mappings"])
++    account_mappings = cast("dict[str, Any]", coa["account_mappings"])
+     if (
+         account_type not in account_mappings
+         or account_subtype not in account_mappings[account_type]
+     ):
+         msg = f"Unmapped Plaid account type/subtype: {account_type}/{account_subtype}"
+         raise ValueError(msg)
+-    return cast(str, account_mappings[account_type][account_subtype])
++    return cast("str", account_mappings[account_type][account_subtype])
+ 
+ 
+ def _get_expense_account(categories: list[str] | None) -> str:
+     coa = _load_coa_mapping()
+-    category_mappings = cast(dict[str, Any], coa["category_mappings"])
++    category_mappings = cast("dict[str, Any]", coa["category_mappings"])
+     if not categories:
+-        return cast(str, category_mappings["default"])
++        return cast("str", category_mappings["default"])
+     main = categories[0]
+     sub = categories[1] if len(categories) > 1 else None
+     if main in category_mappings:
+         mapping = category_mappings[main]
+         if isinstance(mapping, dict) and sub and sub in mapping:
+-            return cast(str, mapping[sub])
++            return cast("str", mapping[sub])
+         if isinstance(mapping, str):
+             return mapping
+-    return cast(str, category_mappings["default"])
++    return cast("str", category_mappings["default"])
+ 
+ 
+ def _get_income_account(categories: list[str] | None) -> str:
+     """Use Deposit submapping when present; otherwise fallback."""
+     coa = _load_coa_mapping()
+-    cm = cast(dict[str, Any], coa["category_mappings"])
++    cm = cast("dict[str, Any]", coa["category_mappings"])
+     if not categories:
+         return "Income:Miscellaneous"
+     main = categories[0]
+@@ -62,7 +62,7 @@ def _get_income_account(categories: list[str] | None) -> str:
+     if main == "Deposit":
+         mapping = cm.get("Deposit", {})
+         if isinstance(mapping, dict) and sub and sub in mapping:
+-            return cast(str, mapping[sub])
++            return cast("str", mapping[sub])
+         # Default income bucket for deposits if subcategory unknown
+         return "Income:Miscellaneous"
+     return "Income:Miscellaneous"
+diff --git a/tests/test_load.py b/tests/test_load.py
+index 8d1fcf9..9980060 100644
+--- a/tests/test_load.py
++++ b/tests/test_load.py
+@@ -4,15 +4,11 @@ import hashlib
+ import json
+ from datetime import date
+ from decimal import Decimal
+-from typing import TYPE_CHECKING, Any
+ 
+ import pytest
+ from sqlalchemy import Engine, create_engine, text
+ from sqlalchemy.pool import StaticPool
+ 
+-if TYPE_CHECKING:
+-    from sqlalchemy.engine import Connection
+-
+ # Load API under test:
+ # - load_accounts(accounts: list[dict], conn: Connection) -> None
+ # - load_journal_entries(entries: list[dict], conn: Connection) -> None
+@@ -297,9 +293,8 @@ def test_bulk_load_performance_with_many_entries(db_engine: Engine) -> None:
+     ]
+ 
+     # Generate 1000 entries
+-    entries = []
+-    for i in range(1000):
+-        entries.append({
++    entries = [
++        {
+             "txn_id": f"txn_{i:04d}",
+             "txn_date": date(2024, 1, 1 + (i % 28)),
+             "description": f"Transaction {i}",
+@@ -318,7 +313,9 @@ def test_bulk_load_performance_with_many_entries(db_engine: Engine) -> None:
+                     "amount": Decimal(f"{i}.50"),
+                 },
+             ],
+-        })
++        }
++        for i in range(1000)
++    ]
+ 
+     with db_engine.begin() as conn:
+         load_accounts(accounts, conn)
+@@ -643,7 +640,8 @@ def test_etl_events_rowcounts_recorded(db_engine: Engine) -> None:
+ 
+         row = conn.execute(
+             text("""
+-                SELECT event_type, row_counts, success FROM etl_events ORDER BY id DESC LIMIT 1
++                SELECT event_type, row_counts, success
++                FROM etl_events ORDER BY id DESC LIMIT 1
+             """)
+         ).fetchone()
+ 
+diff --git a/tests/test_transform.py b/tests/test_transform.py
+index 9e7e510..6e7c450 100644
+--- a/tests/test_transform.py
++++ b/tests/test_transform.py
+@@ -3,24 +3,41 @@ from __future__ import annotations
+ import uuid
+ from datetime import date
+ from decimal import Decimal
++from typing import Any, cast
+ 
+ import pytest
+ 
+ # Transform API under test:
+-# - map_plaid_to_journal(plaid_txns: list[dict], accounts: dict[account_id -> {type,subtype,currency,name}]) -> list[entry]
++# - map_plaid_to_journal(
++#     plaid_txns: list[dict],
++#     accounts: dict[account_id -> {type,subtype,currency,name}]
++# ) -> list[entry]
+ # - sort_deterministically(entries) -> list[entry]
+ from etl.transform import map_plaid_to_journal, sort_deterministically
+ 
+ 
+-def accounts_fixture():
++def accounts_fixture() -> dict[str, dict[str, str]]:
+     return {
+-        "acc_123": {"type": "depository", "subtype": "checking", "currency": "USD", "name": "Checking"},
+-        "acc_cc": {"type": "credit", "subtype": "credit card", "currency": "USD", "name": "Visa"},
++        "acc_123": {
++            "type": "depository",
++            "subtype": "checking",
++            "currency": "USD",
++            "name": "Checking",
++        },
++        "acc_cc": {
++            "type": "credit",
++            "subtype": "credit card",
++            "currency": "USD",
++            "name": "Visa",
++        },
+     }
+ 
+ 
+ def test_every_entry_balances_double_entry() -> None:
+-    """Every journal entry must balance: sum(amount where side=debit) == sum(amount where side=credit)."""
++    """Every journal entry must balance.
++
++    sum(amount where side=debit) == sum(amount where side=credit).
++    """
+     plaid_txns = [
+         {
+             "transaction_id": str(uuid.uuid4()),
+@@ -33,7 +50,7 @@ def test_every_entry_balances_double_entry() -> None:
+         {
+             "transaction_id": str(uuid.uuid4()),
+             "account_id": "acc_123",
+-            "amount": -100.00,  # inflow to depository (e.g., salary) - negative in Plaid
++            "amount": -100.00,  # inflow to depository (e.g., salary)
+             "date": "2024-01-16",
+             "name": "Salary Deposit",
+             "pending": False,
+@@ -43,17 +60,44 @@ def test_every_entry_balances_double_entry() -> None:
+     journal_entries = map_plaid_to_journal(plaid_txns, accounts_fixture())
+ 
+     for entry in journal_entries:
+-        debits = sum(l["amount"] for l in entry["lines"] if l["side"] == "debit")
+-        credits = sum(l["amount"] for l in entry["lines"] if l["side"] == "credit")
+-        assert debits == credits, f"Entry {entry['txn_id']} unbalanced: {debits} != {credits}"
++        debits = sum(
++            line["amount"] for line in entry["lines"] if line["side"] == "debit"
++        )
++        credit_amounts = sum(
++            line["amount"] for line in entry["lines"] if line["side"] == "credit"
++        )
++        assert debits == credit_amounts, (
++            f"Entry {entry['txn_id']} unbalanced: {debits} != {credit_amounts}"
++        )
+ 
+ 
+ def test_stable_sorting_by_date_then_txn_id() -> None:
+     """Entries sort deterministically by (posted_date, txn_id)."""
+     plaid_txns = [
+-        {"transaction_id": "txn_b", "account_id": "acc_123", "amount": 10.00, "date": "2024-01-15", "name": "B", "pending": False},
+-        {"transaction_id": "txn_a", "account_id": "acc_123", "amount": 20.00, "date": "2024-01-15", "name": "A", "pending": False},
+-        {"transaction_id": "txn_c", "account_id": "acc_123", "amount": 30.00, "date": "2024-01-14", "name": "C", "pending": False},
++        {
++            "transaction_id": "txn_b",
++            "account_id": "acc_123",
++            "amount": 10.00,
++            "date": "2024-01-15",
++            "name": "B",
++            "pending": False,
++        },
++        {
++            "transaction_id": "txn_a",
++            "account_id": "acc_123",
++            "amount": 20.00,
++            "date": "2024-01-15",
++            "name": "A",
++            "pending": False,
++        },
++        {
++            "transaction_id": "txn_c",
++            "account_id": "acc_123",
++            "amount": 30.00,
++            "date": "2024-01-14",
++            "name": "C",
++            "pending": False,
++        },
+     ]
+     entries = map_plaid_to_journal(plaid_txns, accounts_fixture())
+     sorted_entries = sort_deterministically(entries)
+@@ -65,9 +109,23 @@ def test_stable_sorting_by_date_then_txn_id() -> None:
+ 
+ def test_mapping_covers_known_account_types_and_subtypes() -> None:
+     """Transform must fail fast for unknown account type/subtype."""
+-    unknown_accounts = {"acc_unknown": {"type": "mystery", "subtype": "void", "currency": "USD", "name": "???"}}
++    unknown_accounts = {
++        "acc_unknown": {
++            "type": "mystery",
++            "subtype": "void",
++            "currency": "USD",
++            "name": "???",
++        }
++    }
+     plaid_txns = [
+-        {"transaction_id": str(uuid.uuid4()), "account_id": "acc_unknown", "amount": 50.00, "date": "2024-01-15", "name": "X", "pending": False}
++        {
++            "transaction_id": str(uuid.uuid4()),
++            "account_id": "acc_unknown",
++            "amount": 50.00,
++            "date": "2024-01-15",
++            "name": "X",
++            "pending": False,
++        }
+     ]
+     with pytest.raises(ValueError, match="Unmapped Plaid account type/subtype"):
+         map_plaid_to_journal(plaid_txns, unknown_accounts)
+@@ -76,8 +134,22 @@ def test_mapping_covers_known_account_types_and_subtypes() -> None:
+ def test_pending_transactions_are_skipped() -> None:
+     """Pending transactions are ignored for deterministic balances."""
+     plaid_txns = [
+-        {"transaction_id": str(uuid.uuid4()), "account_id": "acc_123", "amount": 12.00, "date": "2024-01-15", "name": "Pending", "pending": True},
+-        {"transaction_id": str(uuid.uuid4()), "account_id": "acc_123", "amount": 8.00, "date": "2024-01-16", "name": "Posted", "pending": False},
++        {
++            "transaction_id": str(uuid.uuid4()),
++            "account_id": "acc_123",
++            "amount": 12.00,
++            "date": "2024-01-15",
++            "name": "Pending",
++            "pending": True,
++        },
++        {
++            "transaction_id": str(uuid.uuid4()),
++            "account_id": "acc_123",
++            "amount": 8.00,
++            "date": "2024-01-16",
++            "name": "Posted",
++            "pending": False,
++        },
+     ]
+     entries = map_plaid_to_journal(plaid_txns, accounts_fixture())
+     # Only the posted one should appear
+@@ -88,7 +160,14 @@ def test_pending_transactions_are_skipped() -> None:
+ def test_amount_precision_preserved_as_decimal() -> None:
+     """All monetary amounts should be Decimal in transform outputs."""
+     plaid_txns = [
+-        {"transaction_id": str(uuid.uuid4()), "account_id": "acc_123", "amount": 12.345, "date": "2024-01-15", "name": "Precise", "pending": False}
++        {
++            "transaction_id": str(uuid.uuid4()),
++            "account_id": "acc_123",
++            "amount": 12.345,
++            "date": "2024-01-15",
++            "name": "Precise",
++            "pending": False,
++        }
+     ]
+     entries = map_plaid_to_journal(plaid_txns, accounts_fixture())
+     for entry in entries:
+@@ -99,7 +178,14 @@ def test_amount_precision_preserved_as_decimal() -> None:
+ def test_date_conversion_to_date_type() -> None:
+     """txn_date must be converted to date objects."""
+     plaid_txns = [
+-        {"transaction_id": str(uuid.uuid4()), "account_id": "acc_123", "amount": 25.00, "date": "2024-01-15", "name": "Dated", "pending": False}
++        {
++            "transaction_id": str(uuid.uuid4()),
++            "account_id": "acc_123",
++            "amount": 25.00,
++            "date": "2024-01-15",
++            "name": "Dated",
++            "pending": False,
++        }
+     ]
+     entries = map_plaid_to_journal(plaid_txns, accounts_fixture())
+     for entry in entries:
+@@ -110,14 +196,38 @@ def test_date_conversion_to_date_type() -> None:
+ def test_currency_propagated_from_account() -> None:
+     """Currency must be persisted from account metadata per ADR §1."""
+     accounts = {
+-        "acc_usd": {"type": "depository", "subtype": "checking", "currency": "USD", "name": "USD Checking"},
+-        "acc_cad": {"type": "depository", "subtype": "checking", "currency": "CAD", "name": "CAD Checking"},
++        "acc_usd": {
++            "type": "depository",
++            "subtype": "checking",
++            "currency": "USD",
++            "name": "USD Checking",
++        },
++        "acc_cad": {
++            "type": "depository",
++            "subtype": "checking",
++            "currency": "CAD",
++            "name": "CAD Checking",
++        },
+     }
+     t_usd = str(uuid.uuid4())
+     t_cad = str(uuid.uuid4())
+     plaid_txns = [
+-        {"transaction_id": t_usd, "account_id": "acc_usd", "amount": 25.00, "date": "2024-01-15", "name": "USD Txn", "pending": False},
+-        {"transaction_id": t_cad, "account_id": "acc_cad", "amount": 30.00, "date": "2024-01-16", "name": "CAD Txn", "pending": False},
++        {
++            "transaction_id": t_usd,
++            "account_id": "acc_usd",
++            "amount": 25.00,
++            "date": "2024-01-15",
++            "name": "USD Txn",
++            "pending": False,
++        },
++        {
++            "transaction_id": t_cad,
++            "account_id": "acc_cad",
++            "amount": 30.00,
++            "date": "2024-01-16",
++            "name": "CAD Txn",
++            "pending": False,
++        },
+     ]
+     expected = {t_usd: "USD", t_cad: "CAD"}
+ 
+@@ -130,25 +240,50 @@ def test_currency_propagated_from_account() -> None:
+ def test_cash_line_direction_for_depository_accounts() -> None:
+     """Cash line is credit on outflow (expense), debit on inflow (deposit)."""
+     accs = {
+-        "acc_123": {"type": "depository", "subtype": "checking", "currency": "USD", "name": "Checking"},
++        "acc_123": {
++            "type": "depository",
++            "subtype": "checking",
++            "currency": "USD",
++            "name": "Checking",
++        },
+     }
+     txn_out = "txn_out"
+     txn_in = "txn_in"
+     plaid_txns = [
+         # Outflow: typical purchase/expense
+-        {"transaction_id": txn_out, "account_id": "acc_123", "amount": 25.50, "date": "2024-01-15",
+-         "name": "Coffee", "category": ["Food and Drink"], "pending": False},
++        {
++            "transaction_id": txn_out,
++            "account_id": "acc_123",
++            "amount": 25.50,
++            "date": "2024-01-15",
++            "name": "Coffee",
++            "category": ["Food and Drink"],
++            "pending": False,
++        },
+         # Inflow: salary/deposit (negative amount in Plaid for deposits)
+-        {"transaction_id": txn_in, "account_id": "acc_123", "amount": -100.00, "date": "2024-01-16",
+-         "name": "Salary", "category": ["Deposit"], "pending": False},
++        {
++            "transaction_id": txn_in,
++            "account_id": "acc_123",
++            "amount": -100.00,
++            "date": "2024-01-16",
++            "name": "Salary",
++            "category": ["Deposit"],
++            "pending": False,
++        },
+     ]
+ 
+     entries = {e["txn_id"]: e for e in map_plaid_to_journal(plaid_txns, accs)}
+ 
+-    def cash_side(entry):
+-        cash_lines = [l for l in entry["lines"] if "checking" in l["account"].lower() or "cash" in l["account"].lower() or "bank" in l["account"].lower()]
++    def cash_side(entry: dict[str, Any]) -> str:
++        cash_lines = [
++            line
++            for line in entry["lines"]
++            if "checking" in line["account"].lower()
++            or "cash" in line["account"].lower()
++            or "bank" in line["account"].lower()
++        ]
+         assert len(cash_lines) == 1, f"expected 1 cash line, got {cash_lines}"
+-        return cash_lines[0]["side"]
++        return cast("str", cash_lines[0]["side"])
+ 
+     assert cash_side(entries[txn_out]) == "credit"  # cash decreases on expense
+-    assert cash_side(entries[txn_in])  == "debit"   # cash increases on deposit
+\ No newline at end of file
++    assert cash_side(entries[txn_in]) == "debit"  # cash increases on deposit

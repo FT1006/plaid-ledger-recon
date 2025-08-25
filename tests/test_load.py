@@ -1,17 +1,15 @@
+"""Tests for data loading and database operations."""
+
 from __future__ import annotations
 
 import hashlib
 import json
 from datetime import date
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
 
 import pytest
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.pool import StaticPool
-
-if TYPE_CHECKING:
-    from sqlalchemy.engine import Connection
 
 # Load API under test:
 # - load_accounts(accounts: list[dict], conn: Connection) -> None
@@ -48,7 +46,7 @@ def db_engine() -> Engine:
                 subtype TEXT NOT NULL,
                 currency TEXT NOT NULL
             )
-        """)
+        """),
         )
         conn.execute(
             text("""
@@ -61,7 +59,7 @@ def db_engine() -> Engine:
                 source_hash TEXT NOT NULL,
                 transform_version INTEGER NOT NULL
             )
-        """)
+        """),
         )
         # NOTE: account_id FK instead of free-text account
         conn.execute(
@@ -75,7 +73,7 @@ def db_engine() -> Engine:
                 FOREIGN KEY (entry_id) REFERENCES journal_entries(id) ON DELETE CASCADE,
                 FOREIGN KEY (account_id) REFERENCES accounts(id)
             )
-        """)
+        """),
         )
         conn.execute(
             text("""
@@ -88,7 +86,7 @@ def db_engine() -> Engine:
                 finished_at TEXT,
                 success INTEGER NOT NULL
             )
-        """)
+        """),
         )
     return engine
 
@@ -297,9 +295,8 @@ def test_bulk_load_performance_with_many_entries(db_engine: Engine) -> None:
     ]
 
     # Generate 1000 entries
-    entries = []
-    for i in range(1000):
-        entries.append({
+    entries = [
+        {
             "txn_id": f"txn_{i:04d}",
             "txn_date": date(2024, 1, 1 + (i % 28)),
             "description": f"Transaction {i}",
@@ -318,7 +315,9 @@ def test_bulk_load_performance_with_many_entries(db_engine: Engine) -> None:
                     "amount": Decimal(f"{i}.50"),
                 },
             ],
-        })
+        }
+        for i in range(1000)
+    ]
 
     with db_engine.begin() as conn:
         load_accounts(accounts, conn)
@@ -458,7 +457,7 @@ def test_transform_version_tracked_for_lineage(db_engine: Engine) -> None:
                     "amount": Decimal("50.00"),
                 },
             ],
-        }
+        },
     ]
 
     entries_v2 = [
@@ -477,7 +476,7 @@ def test_transform_version_tracked_for_lineage(db_engine: Engine) -> None:
                     "amount": Decimal("75.00"),
                 },
             ],
-        }
+        },
     ]
 
     with db_engine.begin() as conn:
@@ -584,7 +583,7 @@ def test_currency_preserved_in_journal_entries(db_engine: Engine) -> None:
         load_journal_entries(entries, conn)
 
         currencies = conn.execute(
-            text("SELECT txn_id, currency FROM journal_entries ORDER BY txn_id")
+            text("SELECT txn_id, currency FROM journal_entries ORDER BY txn_id"),
         ).fetchall()
 
     assert currencies[0] == ("txn_cad", "CAD")
@@ -634,7 +633,7 @@ def test_etl_events_rowcounts_recorded(db_engine: Engine) -> None:
                     "amount": Decimal("10.00"),
                 },
             ],
-        }
+        },
     ]
 
     with db_engine.begin() as conn:
@@ -643,8 +642,9 @@ def test_etl_events_rowcounts_recorded(db_engine: Engine) -> None:
 
         row = conn.execute(
             text("""
-                SELECT event_type, row_counts, success FROM etl_events ORDER BY id DESC LIMIT 1
-            """)
+                SELECT event_type, row_counts, success
+                FROM etl_events ORDER BY id DESC LIMIT 1
+            """),
         ).fetchone()
 
     assert row is not None

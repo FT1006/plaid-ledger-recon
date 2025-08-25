@@ -1,4 +1,6 @@
 # etl/transform.py
+"""Transform Plaid transactions into journal entries using Chart of Accounts."""
+
 from __future__ import annotations
 
 import hashlib
@@ -20,41 +22,41 @@ def _load_coa_mapping() -> dict[str, Any]:
     """Load Chart of Accounts mapping from YAML file (cached)."""
     coa_path = Path(__file__).parent / "coa.yaml"
     result = yaml.safe_load(coa_path.read_text(encoding="utf-8"))
-    return cast(dict[str, Any], result)
+    return cast("dict[str, Any]", result)
 
 
 def _get_cash_account(account_type: str, account_subtype: str) -> str:
     coa = _load_coa_mapping()
-    account_mappings = cast(dict[str, Any], coa["account_mappings"])
+    account_mappings = cast("dict[str, Any]", coa["account_mappings"])
     if (
         account_type not in account_mappings
         or account_subtype not in account_mappings[account_type]
     ):
         msg = f"Unmapped Plaid account type/subtype: {account_type}/{account_subtype}"
         raise ValueError(msg)
-    return cast(str, account_mappings[account_type][account_subtype])
+    return cast("str", account_mappings[account_type][account_subtype])
 
 
 def _get_expense_account(categories: list[str] | None) -> str:
     coa = _load_coa_mapping()
-    category_mappings = cast(dict[str, Any], coa["category_mappings"])
+    category_mappings = cast("dict[str, Any]", coa["category_mappings"])
     if not categories:
-        return cast(str, category_mappings["default"])
+        return cast("str", category_mappings["default"])
     main = categories[0]
     sub = categories[1] if len(categories) > 1 else None
     if main in category_mappings:
         mapping = category_mappings[main]
         if isinstance(mapping, dict) and sub and sub in mapping:
-            return cast(str, mapping[sub])
+            return cast("str", mapping[sub])
         if isinstance(mapping, str):
             return mapping
-    return cast(str, category_mappings["default"])
+    return cast("str", category_mappings["default"])
 
 
 def _get_income_account(categories: list[str] | None) -> str:
     """Use Deposit submapping when present; otherwise fallback."""
     coa = _load_coa_mapping()
-    cm = cast(dict[str, Any], coa["category_mappings"])
+    cm = cast("dict[str, Any]", coa["category_mappings"])
     if not categories:
         return "Income:Miscellaneous"
     main = categories[0]
@@ -62,7 +64,7 @@ def _get_income_account(categories: list[str] | None) -> str:
     if main == "Deposit":
         mapping = cm.get("Deposit", {})
         if isinstance(mapping, dict) and sub and sub in mapping:
-            return cast(str, mapping[sub])
+            return cast("str", mapping[sub])
         # Default income bucket for deposits if subcategory unknown
         return "Income:Miscellaneous"
     return "Income:Miscellaneous"

@@ -1,3 +1,5 @@
+"""Tests for CLI interface and command validation."""
+
 from __future__ import annotations
 
 from datetime import date
@@ -27,14 +29,16 @@ def test_ingest_requires_item_and_window() -> None:
 
     # Test missing --to
     result = runner.invoke(
-        app, ["ingest", "--item-id", "test_item", "--from", "2024-01-01"]
+        app,
+        ["ingest", "--item-id", "test_item", "--from", "2024-01-01"],
     )
     assert result.exit_code == 2
     assert "Missing option" in result.output
 
     # Test missing --item-id
     result = runner.invoke(
-        app, ["ingest", "--from", "2024-01-01", "--to", "2024-01-31"]
+        app,
+        ["ingest", "--from", "2024-01-01", "--to", "2024-01-31"],
     )
     assert result.exit_code == 2
     assert "Missing option" in result.output
@@ -108,7 +112,7 @@ def test_ingest_success_exit_zero() -> None:
                 "date": "2024-01-15",
                 "name": "Test Transaction",
                 "pending": False,
-            }
+            },
         ])
 
         fetch_accts.return_value = [
@@ -119,7 +123,7 @@ def test_ingest_success_exit_zero() -> None:
                 "balances": {"current": 1000.00},
                 "name": "Test Account",
                 "iso_currency_code": "USD",
-            }
+            },
         ]
 
         map_to_journal.return_value = [
@@ -142,7 +146,7 @@ def test_ingest_success_exit_zero() -> None:
                         "amount": Decimal("100.00"),
                     },
                 ],
-            }
+            },
         ]
 
         result = runner.invoke(
@@ -175,7 +179,8 @@ def test_ingest_database_connection_failure() -> None:
         patch("cli.map_plaid_to_journal") as map_to_journal,
         patch("cli.load_accounts"),
         patch(
-            "cli.load_journal_entries", side_effect=RuntimeError("DB connection failed")
+            "cli.load_journal_entries",
+            side_effect=RuntimeError("DB connection failed"),
         ),
     ):
         getenv.side_effect = lambda k: {
@@ -192,7 +197,7 @@ def test_ingest_database_connection_failure() -> None:
                 "date": "2024-01-15",
                 "name": "Test",
                 "pending": False,
-            }
+            },
         ])
         fetch_accts.return_value = [
             {
@@ -201,7 +206,7 @@ def test_ingest_database_connection_failure() -> None:
                 "subtype": "checking",
                 "name": "Test",
                 "iso_currency_code": "USD",
-            }
+            },
         ]
         map_to_journal.return_value = [
             {
@@ -212,7 +217,7 @@ def test_ingest_database_connection_failure() -> None:
                 "source_hash": "hash",
                 "transform_version": 1,
                 "lines": [],
-            }
+            },
         ]
 
         result = runner.invoke(
@@ -380,7 +385,7 @@ def test_ingest_row_count_reporting() -> None:
                 "subtype": "checking",
                 "balances": {"current": 1000.00},
                 "iso_currency_code": "USD",
-            }
+            },
         ]
 
         map_to_journal.return_value = [

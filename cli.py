@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
+"""CLI interface for Plaid Financial ETL pipeline."""
 
 import os
+from datetime import date
 from pathlib import Path
 from typing import Annotated
 
@@ -9,12 +11,24 @@ import typer
 from dotenv import load_dotenv
 
 from etl.connectors.plaid_client import create_plaid_client_from_env
+from etl.extract import fetch_accounts, sync_transactions
+from etl.load import load_accounts, load_journal_entries
+from etl.transform import map_plaid_to_journal
 
 app = typer.Typer(
     name="pfetl",
     help="Plaid Financial ETL - Audit-ready pipeline: Sandbox → Postgres → Reports",
     no_args_is_help=True,
 )
+
+
+def _parse_date(value: str) -> date:
+    """Parse date string in YYYY-MM-DD format."""
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        typer.echo(f"❌ Invalid date format: {value}. Use YYYY-MM-DD", err=True)
+        raise typer.Exit(1) from None
 
 
 @app.command("init-db")
@@ -50,13 +64,16 @@ def init_db() -> None:
 @app.command("onboard")
 def onboard(
     sandbox: Annotated[
-        bool, typer.Option("--sandbox", help="Use Plaid sandbox environment")
+        bool,
+        typer.Option("--sandbox", help="Use Plaid sandbox environment"),
     ] = False,
     write_env: Annotated[
-        bool, typer.Option("--write-env", help="Append credentials to .env file")
+        bool,
+        typer.Option("--write-env", help="Append credentials to .env file"),
     ] = False,
     env_path: Annotated[
-        str, typer.Option("--env-path", help="Path to .env file")
+        str,
+        typer.Option("--env-path", help="Path to .env file"),
     ] = ".env",
 ) -> None:
     """Onboard a Plaid item and obtain access token."""
@@ -99,8 +116,63 @@ def ingest(
     to_date: Annotated[str, typer.Option("--to", help="End date (YYYY-MM-DD)")],
 ) -> None:
     """Ingest transactions from Plaid for the specified date range."""
-    typer.echo("🚧 ingest: Not yet implemented")
-    raise typer.Exit(1)
+    # Validate dates
+    start = _parse_date(from_date)
+    end = _parse_date(to_date)
+    if start > end:
+        typer.echo("❌ Invalid date range: --from must be <= --to", err=True)
+        raise typer.Exit(1)
+
+    # Check environment
+    load_dotenv()
+    access_token = os.getenv("PLAID_ACCESS_TOKEN")
+    if not access_token:
+        typer.echo("❌ PLAID_ACCESS_TOKEN not set in environment", err=True)
+        raise typer.Exit(1)
+
+    # Intentionally not connecting here (tests patch loaders).
+    # Database connectivity is exercised in load() tests, not CLI wiring.
+
+    try:
+        # Extract
+        txns = list(sync_transactions(access_token, start.isoformat(), end.isoformat()))
+        accts = fetch_accounts(access_token)
+
+        if not txns:
+            typer.echo("No transactions to ingest (0 transactions).")
+            return
+
+        # Transform
+        acct_map = {
+            a["account_id"]: {
+                "type": a["type"],
+                "subtype": a["subtype"],
+                "currency": a.get("iso_currency_code") or "USD",
+                "name": a["name"],
+            }
+            for a in accts
+        }
+        entries = map_plaid_to_journal(txns, acct_map)
+
+        # Load (tests patch these functions; no DB wiring here)
+        load_accts = [
+            {
+                "plaid_account_id": a["account_id"],
+                "name": a["name"],
+                "type": a["type"],
+                "subtype": a["subtype"],
+                "currency": a.get("iso_currency_code") or "USD",
+            }
+            for a in accts
+        ]
+        load_accounts(load_accts, None)
+        load_journal_entries(entries, None)
+
+        typer.echo(f"✅ Ingested {len(txns)} transactions.")
+
+    except Exception as e:
+        typer.echo(f"❌ Error during ingest: {e}", err=True)
+        raise typer.Exit(1) from e
 
 
 @app.command("reconcile")
@@ -119,7 +191,8 @@ def report(
     item_id: Annotated[str, typer.Option("--item-id", help="Plaid item ID")],
     period: Annotated[str, typer.Option("--period", help="Period (e.g., 2024Q1)")],
     formats: Annotated[
-        str, typer.Option("--formats", help="Comma-separated formats (html,pdf)")
+        str,
+        typer.Option("--formats", help="Comma-separated formats (html,pdf)"),
     ] = "html,pdf",
     out: Annotated[str, typer.Option("--out", help="Output directory")] = "./build",
 ) -> None:

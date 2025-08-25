@@ -1,3 +1,5 @@
+"""Tests for data extraction from Plaid API."""
+
 import json
 import os
 from datetime import datetime
@@ -13,6 +15,8 @@ from etl.extract import canonicalize_json, land_raw, sync_transactions
 
 
 class TestExtract:
+    """Test suite for transaction extraction functionality."""
+
     def test_pagination_across_multiple_pages(
         self,
         monkeypatch: Any,
@@ -218,6 +222,8 @@ def test_canonicalize_json_is_stable() -> None:
 
 
 class TestExtractErrorHandling:
+    """Test suite for extraction error handling and retry logic."""
+
     def test_no_retry_on_400(self, monkeypatch: Any) -> None:
         """Extract does not retry on 400 (non-retryable 4xx)."""
         monkeypatch.setenv("PLAID_CLIENT_ID", "test_client")

@@ -32,13 +32,12 @@ def _default_backoff(attempt: int) -> float:
 
 def sync_transactions(
     access_token: str,
-    date_from: str,  # kept for signature parity  # noqa: ARG001
-    date_to: str,  # noqa: ARG001
+    date_from: str,  # kept for signature parity
+    date_to: str,
     *,
     backoff_fn: Callable[[int], float] | None = None,
 ) -> Iterable[dict[str, Any]]:
-    """
-    Sync transactions via /transactions/sync with pagination + bounded retry.
+    """Sync transactions via /transactions/sync with pagination + bounded retry.
 
     ADR: See §Connector for design rationale.
     """
@@ -85,9 +84,26 @@ def sync_transactions(
             cursor = data.get("next_cursor")
 
 
-def land_raw(item_id: str, transactions: list[dict[str, Any]]) -> int:
+def fetch_accounts(access_token: str) -> list[dict[str, Any]]:
+    """Fetch account metadata from Plaid /accounts/get endpoint.
+
+    Returns list of account objects with metadata needed for transformation.
     """
-    Insert one row per transaction into raw_transactions with canonical JSON.
+    with create_plaid_client_from_env() as client:
+        url = f"{client.base_url}/accounts/get"
+        payload = {
+            "client_id": client.credentials.client_id,
+            "secret": client.credentials.secret,
+            "access_token": access_token,
+        }
+        resp = client.client.post(url, json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("accounts", [])  # type: ignore[no-any-return]
+
+
+def land_raw(item_id: str, transactions: list[dict[str, Any]]) -> int:
+    """Insert one row per transaction into raw_transactions with canonical JSON.
 
     ADR: See §Raw landing for design rationale.
     """

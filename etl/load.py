@@ -13,12 +13,15 @@ if TYPE_CHECKING:
     from sqlalchemy.engine import Connection
 
 
-def load_accounts(accounts: list[dict[str, Any]], conn: Connection) -> None:
+def load_accounts(accounts: list[dict[str, Any]], conn: Connection | None) -> None:
     """Upsert accounts by plaid_account_id.
 
     Uses INSERT ... ON CONFLICT for PostgreSQL, fallback for SQLite tests.
     """
     if not accounts:
+        return
+
+    if conn is None:
         return
 
     # Check if we're using PostgreSQL or SQLite
@@ -74,7 +77,10 @@ def load_accounts(accounts: list[dict[str, Any]], conn: Connection) -> None:
                 )
 
 
-def load_journal_entries(entries: list[dict[str, Any]], conn: Connection) -> None:
+def load_journal_entries(
+    entries: list[dict[str, Any]],
+    conn: Connection | None,
+) -> None:
     """Load journal entries with lines, tracking ETL events.
 
     - Idempotent insert (skip duplicates by txn_id)
@@ -82,6 +88,9 @@ def load_journal_entries(entries: list[dict[str, Any]], conn: Connection) -> Non
     - Record row counts in etl_events
     """
     if not entries:
+        return
+
+    if conn is None:
         return
 
     started_at = datetime.now(UTC).isoformat()

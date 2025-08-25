@@ -1,3 +1,5 @@
+"""Tests for Plaid onboarding flow and credential management."""
+
 from pathlib import Path
 from typing import Any
 
@@ -20,9 +22,9 @@ EXCHANGE_URL = "https://sandbox.plaid.com/item/public_token/exchange"
 def test_onboard_sandbox_flow_success_prints_item_id_and_exits_zero(
     monkeypatch: Any,
 ) -> None:
-    """
-    ADR: Onboard performs sandbox public_token/create then item/public_token/exchange,
-    prints ITEM_ID, exits 0.
+    """ADR: Onboard performs sandbox public_token/create then exchange.
+
+    Prints ITEM_ID, exits 0.
     """
     # Minimal env required by CLI (values are not used by mocks but mirror real usage)
     monkeypatch.setenv("PLAID_CLIENT_ID", "id_sandbox_x")
@@ -37,7 +39,7 @@ def test_onboard_sandbox_flow_success_prints_item_id_and_exits_zero(
 
     respx.post(SANDBOX_PUBLIC_TOKEN_URL).side_effect = record_request  # type: ignore[assignment]
     respx.post(SANDBOX_PUBLIC_TOKEN_URL).mock(
-        return_value=httpx.Response(200, json={"public_token": "public-sandbox-token"})
+        return_value=httpx.Response(200, json={"public_token": "public-sandbox-token"}),
     )
     respx.post(EXCHANGE_URL).side_effect = record_request  # type: ignore[assignment]
     respx.post(EXCHANGE_URL).mock(
@@ -47,7 +49,7 @@ def test_onboard_sandbox_flow_success_prints_item_id_and_exits_zero(
                 "access_token": "access-sandbox-test-token",
                 "item_id": "test-item-id-12345",
             },
-        )
+        ),
     )
 
     result = runner.invoke(app, ["onboard", "--sandbox"])
@@ -72,10 +74,10 @@ def test_onboard_failure_returns_nonzero_and_message(monkeypatch: Any) -> None:
     monkeypatch.setenv("PLAID_ENV", "sandbox")
 
     respx.post(SANDBOX_PUBLIC_TOKEN_URL).mock(
-        return_value=httpx.Response(200, json={"public_token": "public-sandbox-token"})
+        return_value=httpx.Response(200, json={"public_token": "public-sandbox-token"}),
     )
     respx.post(EXCHANGE_URL).mock(
-        return_value=httpx.Response(500, json={"error": "boom"})
+        return_value=httpx.Response(500, json={"error": "boom"}),
     )
 
     result = runner.invoke(app, ["onboard", "--sandbox"])
@@ -87,11 +89,12 @@ def test_onboard_failure_returns_nonzero_and_message(monkeypatch: Any) -> None:
 
 @respx.mock
 def test_onboard_write_env_appends_and_dedupes(
-    tmp_path: Path, monkeypatch: Any
+    tmp_path: Path,
+    monkeypatch: Any,
 ) -> None:
-    """
-    Optional (still RED): with --write-env, CLI appends PLAID_ACCESS_TOKEN
-    and PLAID_ITEM_ID to the specified .env path, without duplicating keys on re-run.
+    """Optional (still RED): with --write-env, CLI appends PLAID_ACCESS_TOKEN.
+
+    And PLAID_ITEM_ID to the specified .env path, without duplicating keys.
     """
     monkeypatch.setenv("PLAID_CLIENT_ID", "id_sandbox_x")
     monkeypatch.setenv("PLAID_SECRET", "secret_sandbox_x")
@@ -101,7 +104,7 @@ def test_onboard_write_env_appends_and_dedupes(
     env_path.write_text("PLAID_CLIENT_ID=id_sandbox_x\nPLAID_SECRET=secret_sandbox_x\n")
 
     respx.post(SANDBOX_PUBLIC_TOKEN_URL).mock(
-        return_value=httpx.Response(200, json={"public_token": "public-sandbox-token"})
+        return_value=httpx.Response(200, json={"public_token": "public-sandbox-token"}),
     )
     respx.post(EXCHANGE_URL).mock(
         return_value=httpx.Response(
@@ -110,12 +113,13 @@ def test_onboard_write_env_appends_and_dedupes(
                 "access_token": "access-sandbox-test-token",
                 "item_id": "test-item-id-12345",
             },
-        )
+        ),
     )
 
     # Expect your CLI to support --env-path, or default to ./ .env if omitted.
     result = runner.invoke(
-        app, ["onboard", "--sandbox", "--write-env", f"--env-path={env_path}"]
+        app,
+        ["onboard", "--sandbox", "--write-env", f"--env-path={env_path}"],
     )
     assert result.exit_code == 0
 
@@ -125,7 +129,8 @@ def test_onboard_write_env_appends_and_dedupes(
 
     # Re-run should not duplicate
     result2 = runner.invoke(
-        app, ["onboard", "--sandbox", "--write-env", f"--env-path={env_path}"]
+        app,
+        ["onboard", "--sandbox", "--write-env", f"--env-path={env_path}"],
     )
     assert result2.exit_code == 0
     text2 = env_path.read_text()
