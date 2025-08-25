@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 
+import os
+from pathlib import Path
 from typing import Annotated
 
+import psycopg
 import typer
+from dotenv import load_dotenv
 
 app = typer.Typer(
     name="pfetl",
@@ -14,8 +18,32 @@ app = typer.Typer(
 @app.command("init-db")
 def init_db() -> None:
     """Initialize database schema from etl/schema.sql."""
-    typer.echo("🚧 init-db: Not yet implemented")
-    raise typer.Exit(1)
+    load_dotenv()
+    
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        typer.echo("❌ DATABASE_URL not found in environment", err=True)
+        raise typer.Exit(2)
+    
+    schema_path = Path(__file__).parent / "etl" / "schema.sql"
+    if not schema_path.exists():
+        typer.echo(f"❌ Schema file not found: {schema_path}", err=True)
+        raise typer.Exit(2)
+    
+    try:
+        with psycopg.connect(database_url) as conn:
+            with conn.cursor() as cur:
+                schema_sql = schema_path.read_text()
+                cur.execute(schema_sql)
+                conn.commit()
+        
+        typer.echo("✅ Database schema initialized successfully")
+    except psycopg.Error as e:
+        typer.echo(f"❌ Database error: {e}", err=True)
+        raise typer.Exit(1)
+    except Exception as e:
+        typer.echo(f"❌ Unexpected error: {e}", err=True)
+        raise typer.Exit(1)
 
 
 @app.command("onboard")
