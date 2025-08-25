@@ -8,6 +8,8 @@ import psycopg
 import typer
 from dotenv import load_dotenv
 
+from etl.connectors.plaid_client import create_plaid_client_from_env
+
 app = typer.Typer(
     name="pfetl",
     help="Plaid Financial ETL - Audit-ready pipeline: Sandbox → Postgres → Reports",
@@ -53,14 +55,41 @@ def onboard(
     write_env: Annotated[
         bool, typer.Option("--write-env", help="Append credentials to .env file")
     ] = False,
+    env_path: Annotated[
+        str, typer.Option("--env-path", help="Path to .env file")
+    ] = ".env",
 ) -> None:
     """Onboard a Plaid item and obtain access token."""
-    if not sandbox:
-        typer.echo("❌ Only sandbox mode is supported in MVP", err=True)
-        raise typer.Exit(2)
+    try:
+        with create_plaid_client_from_env() as client:
+            if not (sandbox and client.base_url.endswith("sandbox.plaid.com")):
+                typer.echo("Non-sandbox onboard not supported in MVP", err=True)
+                raise typer.Exit(code=1)  # noqa: TRY301
 
-    typer.echo("🚧 onboard: Not yet implemented")
-    raise typer.Exit(1)
+            public_token = client.create_sandbox_public_token()
+            access_token, item_id = client.exchange_public_token(public_token)
+
+            typer.echo(item_id)
+            if write_env:
+                # append/dedupe
+                lines = {}
+                env_file = Path(env_path)
+                try:
+                    with env_file.open() as f:
+                        for line in f:
+                            if "=" in line:
+                                k, v = line.strip().split("=", 1)
+                                lines[k] = v
+                except FileNotFoundError:
+                    pass
+                lines["PLAID_ACCESS_TOKEN"] = access_token
+                lines["PLAID_ITEM_ID"] = item_id
+                with env_file.open("w") as f:
+                    for k, v in lines.items():
+                        f.write(f"{k}={v}\n")
+    except Exception as e:
+        typer.echo(f"onboard failed: {e}", err=True)
+        raise typer.Exit(code=1) from e
 
 
 @app.command("ingest")
