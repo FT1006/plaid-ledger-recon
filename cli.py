@@ -19,31 +19,30 @@ app = typer.Typer(
 def init_db() -> None:
     """Initialize database schema from etl/schema.sql."""
     load_dotenv()
-    
+
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
         typer.echo("❌ DATABASE_URL not found in environment", err=True)
         raise typer.Exit(2)
-    
+
     schema_path = Path(__file__).parent / "etl" / "schema.sql"
     if not schema_path.exists():
         typer.echo(f"❌ Schema file not found: {schema_path}", err=True)
         raise typer.Exit(2)
-    
+
     try:
-        with psycopg.connect(database_url) as conn:
-            with conn.cursor() as cur:
-                schema_sql = schema_path.read_text()
-                cur.execute(schema_sql)
-                conn.commit()
-        
+        with psycopg.connect(database_url) as conn, conn.cursor() as cur:
+            schema_sql = schema_path.read_text()
+            cur.execute(schema_sql)
+            conn.commit()
+
         typer.echo("✅ Database schema initialized successfully")
     except psycopg.Error as e:
         typer.echo(f"❌ Database error: {e}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
     except Exception as e:
         typer.echo(f"❌ Unexpected error: {e}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command("onboard")
