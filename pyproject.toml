@@ -83,3 +83,7 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+markers = [
+    "integration: marks tests as integration tests (require DATABASE_URL)",
+    "e2e: marks tests as end-to-end tests (require external services)"
+]
