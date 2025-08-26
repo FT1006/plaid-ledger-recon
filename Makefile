@@ -54,13 +54,13 @@ ci: ship
 
 # Application shortcuts
 run-onboard:
-	python cli.py onboard --sandbox --write-env
+	python3 cli.py onboard --sandbox --write-env
 
 # Database management
 db-up:
 	docker compose up -d postgres
 	@echo "Waiting for database to be ready..."
-	@until docker compose run --rm postgres pg_isready -U pfetl_user -d pfetl; do \
+	@until docker compose run --rm postgres pg_isready -h postgres -U pfetl_user -d pfetl; do \
 		sleep 1; \
 	done
 	@echo "✅ Database is ready"

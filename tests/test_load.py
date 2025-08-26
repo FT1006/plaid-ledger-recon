@@ -38,9 +38,8 @@ def db_engine() -> Engine:
 
         conn.execute(
             text("""
-            CREATE TABLE accounts (
-                id INTEGER PRIMARY KEY,
-                plaid_account_id TEXT UNIQUE NOT NULL,
+            CREATE TABLE ingest_accounts (
+                plaid_account_id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 type TEXT NOT NULL,
                 subtype TEXT NOT NULL,
@@ -61,17 +60,16 @@ def db_engine() -> Engine:
             )
         """),
         )
-        # NOTE: account_id FK instead of free-text account
+        # NOTE: Using MVP schema with text account names (no FK)
         conn.execute(
             text("""
             CREATE TABLE journal_lines (
                 id INTEGER PRIMARY KEY,
                 entry_id INTEGER NOT NULL,
-                account_id INTEGER NOT NULL,
+                account TEXT NOT NULL,
                 side TEXT NOT NULL,
                 amount DECIMAL(15,2) NOT NULL,
-                FOREIGN KEY (entry_id) REFERENCES journal_entries(id) ON DELETE CASCADE,
-                FOREIGN KEY (account_id) REFERENCES accounts(id)
+                FOREIGN KEY (entry_id) REFERENCES journal_entries(id) ON DELETE CASCADE
             )
         """),
         )
@@ -219,7 +217,7 @@ def test_accounts_upsert_by_plaid_account_id(db_engine: Engine) -> None:
     # Verify no duplicate accounts
     with db_engine.begin() as conn:
         result = conn.execute(
-            text("SELECT COUNT(*) FROM accounts WHERE plaid_account_id = :pid"),
+            text("SELECT COUNT(*) FROM ingest_accounts WHERE plaid_account_id = :pid"),
             {"pid": "acc_456"},
         ).scalar()
     assert result == 1
@@ -394,12 +392,11 @@ def test_journal_lines_linked_to_entries(db_engine: Engine) -> None:
         ).scalar()
         assert lines_result == 3
 
-        # Verify line details via JOIN
+        # Verify line details (MVP schema uses text account names)
         lines = conn.execute(
             text("""
-                SELECT a.name, l.side, l.amount
+                SELECT l.account, l.side, l.amount
                 FROM journal_lines l
-                JOIN accounts a ON a.id = l.account_id
                 WHERE l.entry_id = :eid
                 ORDER BY l.id
             """),
