@@ -14,16 +14,6 @@ CREATE TABLE IF NOT EXISTS ingest_accounts (
   currency TEXT NOT NULL
 );
 
--- Shim for journal lines (text account names, no FK)
-CREATE TABLE IF NOT EXISTS journal_lines (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  entry_id UUID NOT NULL REFERENCES journal_entries(id) ON DELETE CASCADE,
-  account TEXT NOT NULL,      -- free-form "Expenses:Dining:Restaurants"
-  side TEXT NOT NULL CHECK (side IN ('debit','credit')),
-  amount NUMERIC(15,2) NOT NULL CHECK (amount >= 0)
-);
-CREATE INDEX IF NOT EXISTS idx_journal_lines_entry ON journal_lines(entry_id);
-
 -- 1) Raw landing (for audit + hashing determinism)
 CREATE TABLE IF NOT EXISTS raw_transactions (
   item_id       TEXT                 NOT NULL,
@@ -55,7 +45,7 @@ CREATE TABLE IF NOT EXISTS journal_entries (
   txn_date          DATE                NOT NULL,
   description       TEXT                NOT NULL,
   currency          CHAR(3)             NOT NULL,
-  source_hash       BYTEA               NOT NULL,       -- SHA256(compact(raw_json))
+  source_hash       TEXT                NOT NULL,       -- SHA256(compact(raw_json)) as hex
   ingested_at       TIMESTAMPTZ         NOT NULL DEFAULT NOW(),
   transform_version INT                 NOT NULL
 );
@@ -63,17 +53,16 @@ CREATE TABLE IF NOT EXISTS journal_entries (
 CREATE INDEX IF NOT EXISTS idx_journal_entries_date ON journal_entries(txn_date);
 CREATE INDEX IF NOT EXISTS idx_journal_entries_txn  ON journal_entries(txn_id);
 
--- 4) Journal lines (double-entry lines; single amount + side)
+-- 4) Journal lines (shim table with text account names, no FK to GL accounts)
 CREATE TABLE IF NOT EXISTS journal_lines (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  entry_id    UUID NOT NULL REFERENCES journal_entries(id) ON DELETE CASCADE,
-  account_id  UUID NOT NULL REFERENCES accounts(id)       ON DELETE RESTRICT,
-  side        TEXT NOT NULL CHECK (side IN ('debit','credit')),
-  amount      NUMERIC(18,2) NOT NULL CHECK (amount > 0)
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  entry_id UUID NOT NULL REFERENCES journal_entries(id) ON DELETE CASCADE,
+  account TEXT NOT NULL,      -- free-form "Expenses:Dining:Restaurants"
+  side TEXT NOT NULL CHECK (side IN ('debit','credit')),
+  amount NUMERIC(15,2) NOT NULL CHECK (amount >= 0)
 );
 
-CREATE INDEX IF NOT EXISTS idx_journal_lines_entry   ON journal_lines(entry_id);
-CREATE INDEX IF NOT EXISTS idx_journal_lines_account ON journal_lines(account_id);
+CREATE INDEX IF NOT EXISTS idx_journal_lines_entry ON journal_lines(entry_id);
 
 -- 5) ETL events (append-only audit of pipeline runs)
 CREATE TABLE IF NOT EXISTS etl_events (
