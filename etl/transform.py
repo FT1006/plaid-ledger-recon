@@ -28,13 +28,22 @@ def _load_coa_mapping() -> dict[str, Any]:
 def _get_cash_account(account_type: str, account_subtype: str) -> str:
     coa = _load_coa_mapping()
     account_mappings = cast("dict[str, Any]", coa["account_mappings"])
+
+    # Normalize type/subtype for lookup
+    normalized_type = (
+        (account_type or "").strip().lower().replace(" ", "_").replace("-", "_")
+    )
+    normalized_subtype = (
+        (account_subtype or "").strip().lower().replace(" ", "_").replace("-", "_")
+    )
+
     if (
-        account_type not in account_mappings
-        or account_subtype not in account_mappings[account_type]
+        normalized_type not in account_mappings
+        or normalized_subtype not in account_mappings[normalized_type]
     ):
         msg = f"Unmapped Plaid account type/subtype: {account_type}/{account_subtype}"
         raise ValueError(msg)
-    return cast("str", account_mappings[account_type][account_subtype])
+    return cast("str", account_mappings[normalized_type][normalized_subtype])
 
 
 def _get_expense_account(categories: list[str] | None) -> str:
@@ -97,6 +106,11 @@ def map_plaid_to_journal(
         acc_subtype = acc["subtype"]
         currency = acc["currency"]
 
+        # Normalize for consistent use throughout function
+        normalized_acc_type = (
+            (acc_type or "").strip().lower().replace(" ", "_").replace("-", "_")
+        )
+
         cash_account = _get_cash_account(acc_type, acc_subtype)
 
         # Decimal precision
@@ -110,7 +124,7 @@ def map_plaid_to_journal(
         txn_date = date.fromisoformat(txn["date"])
         source_hash = _compute_source_hash(txn)
 
-        if acc_type == "depository":
+        if normalized_acc_type == "depository":
             if is_inflow:
                 income_account = _get_income_account(categories)
                 lines = [
@@ -122,6 +136,25 @@ def map_plaid_to_journal(
                 lines = [
                     {"account": expense_account, "side": "debit", "amount": magnitude},
                     {"account": cash_account, "side": "credit", "amount": magnitude},
+                ]
+        elif normalized_acc_type == "credit":
+            if amt_dec > 0:
+                # Purchase: debit expense, credit liability (card balance increases)
+                expense_account = _get_expense_account(categories)
+                lines = [
+                    {"account": expense_account, "side": "debit", "amount": magnitude},
+                    {"account": cash_account, "side": "credit", "amount": magnitude},
+                ]
+            else:
+                # Payment/Refund: debit liability (reduce card balance), credit counter
+                cats_lower = [c.lower() for c in categories]
+                is_payment = any(s in cats_lower for s in ["transfer", "payment"])
+                counter_account = (
+                    "Assets:Bank:Checking" if is_payment else "Income:Refund"
+                )
+                lines = [
+                    {"account": cash_account, "side": "debit", "amount": magnitude},
+                    {"account": counter_account, "side": "credit", "amount": magnitude},
                 ]
         else:
             # Keep MVP narrow; expand in later milestones
