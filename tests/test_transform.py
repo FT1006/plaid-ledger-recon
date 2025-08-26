@@ -15,7 +15,11 @@ import pytest
 #     accounts: dict[account_id -> {type,subtype,currency,name}]
 # ) -> list[entry]
 # - sort_deterministically(entries) -> list[entry]
-from etl.transform import map_plaid_to_journal, sort_deterministically
+from etl.transform import (
+    _compute_source_hash,
+    map_plaid_to_journal,
+    sort_deterministically,
+)
 
 
 def accounts_fixture() -> dict[str, dict[str, str]]:
@@ -75,7 +79,7 @@ def test_every_entry_balances_double_entry() -> None:
 
 
 def test_stable_sorting_by_date_then_txn_id() -> None:
-    """Entries sort deterministically by (posted_date, txn_id)."""
+    """Entries sort deterministically by (txn_date, txn_id)."""
     plaid_txns = [
         {
             "transaction_id": "txn_b",
@@ -290,3 +294,142 @@ def test_cash_line_direction_for_depository_accounts() -> None:
 
     assert cash_side(entries[txn_out]) == "credit"  # cash decreases on expense
     assert cash_side(entries[txn_in]) == "debit"  # cash increases on deposit
+
+
+def test_source_hash_deterministic_for_same_input() -> None:
+    """Source hash should be deterministic for identical input.
+
+    Per ADR: Source hashes enable audit trail and duplicate detection.
+    """
+    txn1 = {
+        "transaction_id": "txn_001",
+        "account_id": "acc_001",
+        "amount": 100.00,
+        "date": "2024-01-15",
+        "name": "Coffee Shop",
+        "category": ["Food and Drink", "Coffee"],
+        "pending": False,
+    }
+
+    # Same data, different key order
+    txn2 = {
+        "pending": False,
+        "name": "Coffee Shop",
+        "transaction_id": "txn_001",
+        "category": ["Food and Drink", "Coffee"],
+        "account_id": "acc_001",
+        "date": "2024-01-15",
+        "amount": 100.00,
+    }
+
+    hash1 = _compute_source_hash(txn1)
+    hash2 = _compute_source_hash(txn2)
+
+    assert hash1 == hash2, "Hashes should be identical for same data"
+    assert len(hash1) == 64, "SHA256 hex should be 64 characters"
+
+
+def test_source_hash_different_for_different_input() -> None:
+    """Source hash should differ for different transactions.
+
+    Per ADR: Unique hashes per transaction enable integrity verification.
+    """
+    txn1 = {
+        "transaction_id": "txn_001",
+        "account_id": "acc_001",
+        "amount": 100.00,
+        "date": "2024-01-15",
+        "name": "Coffee Shop",
+    }
+
+    txn2 = {
+        "transaction_id": "txn_002",  # Different ID
+        "account_id": "acc_001",
+        "amount": 100.00,
+        "date": "2024-01-15",
+        "name": "Coffee Shop",
+    }
+
+    hash1 = _compute_source_hash(txn1)
+    hash2 = _compute_source_hash(txn2)
+
+    assert hash1 != hash2, "Hashes should differ for different transactions"
+
+
+def test_source_hash_stored_in_journal_entry() -> None:
+    """Transformed journal entries should include source_hash.
+
+    Per ADR: Source hash links journal entries to raw transactions.
+    """
+    plaid_txns = [
+        {
+            "transaction_id": "txn_001",
+            "account_id": "acc_001",
+            "amount": 25.00,
+            "date": "2024-01-15",
+            "name": "Restaurant ABC",
+            "category": ["Food and Drink", "Restaurants"],
+            "pending": False,
+        }
+    ]
+
+    accounts = {
+        "acc_001": {
+            "type": "depository",
+            "subtype": "checking",
+            "currency": "USD",
+            "name": "Main Checking",
+        }
+    }
+
+    entries = map_plaid_to_journal(plaid_txns, accounts)
+
+    assert len(entries) == 1
+    entry = entries[0]
+
+    # Check source_hash exists and is correct format
+    assert "source_hash" in entry, "Journal entry should include source_hash"
+    assert isinstance(entry["source_hash"], str), "Source hash should be string"
+    assert len(entry["source_hash"]) == 64, "SHA256 hex should be 64 chars"
+
+    # Verify it matches direct computation
+    expected_hash = _compute_source_hash(plaid_txns[0])
+    assert entry["source_hash"] == expected_hash, "Hash should match direct computation"
+
+
+def test_source_hash_consistency_across_runs() -> None:
+    """Same transaction should produce same hash across multiple runs.
+
+    Per ADR: Deterministic hashing enables idempotency checks.
+    """
+    txn = {
+        "transaction_id": "txn_stable",
+        "account_id": "acc_001",
+        "amount": 50.00,
+        "date": "2024-02-01",
+        "name": "Grocery Store",
+        "merchant_name": "SuperMart",
+        "category": ["Shops", "Groceries"],
+        "pending": False,
+        "iso_currency_code": "USD",
+    }
+
+    accounts = {
+        "acc_001": {
+            "type": "depository",
+            "subtype": "checking",
+            "currency": "USD",
+            "name": "Checking",
+        }
+    }
+
+    # Run transform multiple times
+    run1 = map_plaid_to_journal([txn], accounts)
+    run2 = map_plaid_to_journal([txn], accounts)
+    run3 = map_plaid_to_journal([txn], accounts)
+
+    hash1 = run1[0]["source_hash"]
+    hash2 = run2[0]["source_hash"]
+    hash3 = run3[0]["source_hash"]
+
+    assert hash1 == hash2 == hash3, "Hash should be stable across runs"
