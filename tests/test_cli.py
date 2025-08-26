@@ -95,13 +95,12 @@ def test_ingest_success_exit_zero() -> None:
         patch("cli.load_journal_entries"),
         patch("cli.load_dotenv"),
         patch("cli.os.getenv") as getenv,
+        patch("cli.create_engine"),
     ):
         getenv.side_effect = lambda k: {
             "DATABASE_URL": "postgresql://test",
             "PLAID_ACCESS_TOKEN": "test_token",
         }.get(k)
-
-        # Database connection not needed - loaders are mocked
 
         # Mock ETL pipeline
         sync_txns.return_value = iter([
@@ -182,6 +181,7 @@ def test_ingest_database_connection_failure() -> None:
             "cli.load_journal_entries",
             side_effect=RuntimeError("DB connection failed"),
         ),
+        patch("cli.create_engine"),
     ):
         getenv.side_effect = lambda k: {
             "DATABASE_URL": "postgresql://test",
@@ -310,6 +310,7 @@ def test_ingest_empty_transaction_set() -> None:
         patch("cli.load_journal_entries"),
         patch("cli.load_dotenv"),
         patch("cli.os.getenv") as getenv,
+        patch("cli.create_engine"),
     ):
         getenv.side_effect = lambda k: {
             "DATABASE_URL": "postgresql://test",
@@ -356,6 +357,7 @@ def test_ingest_row_count_reporting() -> None:
         patch("cli.load_journal_entries"),
         patch("cli.load_dotenv"),
         patch("cli.os.getenv") as getenv,
+        patch("cli.create_engine"),
     ):
         getenv.side_effect = lambda k: {
             "DATABASE_URL": "postgresql://test",

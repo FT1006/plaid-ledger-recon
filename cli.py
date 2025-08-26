@@ -9,6 +9,7 @@ from typing import Annotated
 import psycopg
 import typer
 from dotenv import load_dotenv
+from sqlalchemy import create_engine
 
 from etl.connectors.plaid_client import create_plaid_client_from_env
 from etl.extract import fetch_accounts, sync_transactions
@@ -130,8 +131,10 @@ def ingest(
         typer.echo("❌ PLAID_ACCESS_TOKEN not set in environment", err=True)
         raise typer.Exit(1)
 
-    # Intentionally not connecting here (tests patch loaders).
-    # Database connectivity is exercised in load() tests, not CLI wiring.
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        typer.echo("❌ DATABASE_URL not found in environment", err=True)
+        raise typer.Exit(2)
 
     try:
         # Extract
@@ -154,7 +157,7 @@ def ingest(
         }
         entries = map_plaid_to_journal(txns, acct_map)
 
-        # Load (tests patch these functions; no DB wiring here)
+        # Load
         load_accts = [
             {
                 "plaid_account_id": a["account_id"],
@@ -165,8 +168,12 @@ def ingest(
             }
             for a in accts
         ]
-        load_accounts(load_accts, None)
-        load_journal_entries(entries, None)
+
+        # Connect to database and load data
+        engine = create_engine(database_url)
+        with engine.begin() as conn:
+            load_accounts(load_accts, conn)
+            load_journal_entries(entries, conn)
 
         typer.echo(f"✅ Ingested {len(txns)} transactions.")
 
