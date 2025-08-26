@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -80,6 +81,42 @@ def load_accounts(accounts: list[dict[str, Any]], conn: Connection | None) -> No
                 )
 
 
+def _resolve_account_id(account_code: str, conn: Connection) -> str:
+    """Resolve GL account code to UUID, with fail-fast on missing accounts.
+
+    Args:
+        account_code: GL account code like 'Assets:Bank:Checking'
+        conn: Database connection
+
+    Returns:
+        Account UUID as string
+
+    Raises:
+        ValueError: If account code not found and auto-creation disabled
+    """
+    # Look up by code (canonical contract)
+    result = conn.execute(
+        text("SELECT id FROM accounts WHERE code = :code"), {"code": account_code}
+    ).scalar()
+
+    if result is not None:
+        return str(result)
+
+    # Check if auto-creation is enabled
+    auto_create = os.environ.get("PFETL_AUTO_CREATE_ACCOUNTS", "false").lower()
+    if auto_create in ("true", "1", "yes"):
+        # TODO(M3): Implement auto-creation logic here - https://github.com/FT1006/plaid-ledger-recon/issues/new
+        # For now, still fail - auto-creation will be added later
+        pass
+
+    # Fail fast with clear message and environment hint
+    error_msg = (
+        f"No GL account found for code: {account_code}. "
+        "Set PFETL_AUTO_CREATE_ACCOUNTS=true to allow creation (disabled by default)."
+    )
+    raise ValueError(error_msg)
+
+
 def load_journal_entries(
     entries: list[dict[str, Any]],
     conn: Connection | None,
@@ -87,8 +124,9 @@ def load_journal_entries(
     """Load journal entries with lines, tracking ETL events.
 
     - Idempotent insert (skip duplicates by txn_id)
-    - Resolve account names to IDs for FK integrity
+    - Resolve account codes to UUIDs for FK integrity
     - Record row counts in etl_events
+    - Fail fast on unmapped GL account codes
     """
     if not entries:
         return
@@ -136,18 +174,21 @@ def load_journal_entries(
             {"tid": entry["txn_id"]},
         ).scalar()
 
-        # Insert journal lines (using shim table with text account names)
+        # Insert journal lines (resolve GL codes to FK account_id)
         for line in entry["lines"]:
+            # Resolve account code to UUID with fail-fast
+            account_id = _resolve_account_id(line["account"], conn)
+
             conn.execute(
                 text("""
-                    INSERT INTO journal_lines (entry_id, account, side, amount)
-                    VALUES (:entry_id, :account, :side, :amount)
+                    INSERT INTO journal_lines (entry_id, account_id, side, amount)
+                    VALUES (:entry_id, :account_id, :side, :amount)
                 """),
                 {
                     "entry_id": entry_id,
-                    "account": line["account"],  # Direct text account name
+                    "account_id": account_id,  # FK to canonical GL account
                     "side": line["side"],
-                    "amount": float(line["amount"]),  # Convert Decimal for DB
+                    "amount": line["amount"],  # Keep as Decimal for precision
                 },
             )
             lines_inserted += 1
