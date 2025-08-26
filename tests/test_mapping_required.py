@@ -519,3 +519,101 @@ def test_multiple_missing_accounts_first_error_wins() -> None:
 
         # Should still include the env hint
         assert "PFETL_AUTO_CREATE_ACCOUNTS" in error_msg
+
+
+@pytest.mark.parametrize("source_hash,transform_version,expected_error", [
+    (None, 1, "source_hash is required"),
+    ("", 1, "source_hash cannot be empty"),
+    ("   ", 1, "source_hash cannot be empty"),
+    ("hash123", None, "transform_version is required"),
+    ("hash123", 0, "transform_version must be positive"),
+    ("hash123", -1, "transform_version must be positive"),
+])
+def test_missing_lineage_fails_load(source_hash: str | None, transform_version: int | None, expected_error: str) -> None:
+    """Test that entries without valid source_hash or transform_version fail validation."""
+    engine = create_engine("sqlite:///:memory:")
+
+    with engine.begin() as conn:
+        conn.execute(text("PRAGMA foreign_keys = ON"))
+
+        # Minimal schema - allow NULLs so loader validates first
+        conn.execute(
+            text("""
+            CREATE TABLE accounts (
+                id INTEGER PRIMARY KEY,
+                code TEXT UNIQUE NOT NULL,
+                name TEXT NOT NULL,
+                type TEXT NOT NULL,
+                is_cash BOOLEAN NOT NULL DEFAULT 0
+            )
+        """)
+        )
+
+        conn.execute(
+            text("""
+            CREATE TABLE journal_entries (
+                id INTEGER PRIMARY KEY,
+                txn_id TEXT UNIQUE NOT NULL,
+                txn_date DATE NOT NULL,
+                description TEXT NOT NULL,
+                currency TEXT NOT NULL,
+                source_hash TEXT,  -- Allow NULL for loader validation
+                transform_version INTEGER  -- Allow NULL for loader validation
+            )
+        """)
+        )
+
+        conn.execute(
+            text("""
+            CREATE TABLE journal_lines (
+                id INTEGER PRIMARY KEY,
+                entry_id INTEGER NOT NULL REFERENCES journal_entries(id),
+                account_id INTEGER NOT NULL REFERENCES accounts(id),
+                side TEXT NOT NULL,
+                amount NUMERIC(18,2) NOT NULL
+            )
+        """)
+        )
+
+        conn.execute(
+            text("""
+            CREATE TABLE etl_events (
+                id INTEGER PRIMARY KEY,
+                event_type TEXT NOT NULL,
+                row_counts TEXT,
+                started_at TEXT,
+                finished_at TEXT,
+                success BOOLEAN NOT NULL
+            )
+        """)
+        )
+
+        # Seed account
+        conn.execute(
+            text("""
+            INSERT INTO accounts (id, code, name, type, is_cash)
+            VALUES (1, 'Assets:Bank:Checking', 'Bank Checking Account', 'asset', 1)
+        """)
+        )
+
+        # Entry with invalid lineage
+        entries = [
+            {
+                "txn_id": f"test_txn_{source_hash}_{transform_version}",
+                "txn_date": "2024-01-01",
+                "description": "Test lineage validation",
+                "currency": "USD",
+                "source_hash": source_hash,
+                "transform_version": transform_version,
+                "lines": [
+                    {
+                        "account": "Assets:Bank:Checking",
+                        "side": "debit",
+                        "amount": 100.00,
+                    },
+                ],
+            }
+        ]
+
+        with pytest.raises(ValueError, match=expected_error):
+            load_journal_entries(entries, conn)

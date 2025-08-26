@@ -81,6 +81,31 @@ def load_accounts(accounts: list[dict[str, Any]], conn: Connection | None) -> No
                 )
 
 
+def _validate_lineage(entry: dict[str, Any]) -> None:
+    """Validate that entry has proper lineage information.
+    
+    Args:
+        entry: Journal entry dictionary
+        
+    Raises:
+        ValueError: If source_hash or transform_version invalid
+    """
+    source_hash = entry.get("source_hash")
+    transform_version = entry.get("transform_version")
+    
+    # Validate source_hash
+    if source_hash is None:
+        raise ValueError("source_hash is required")
+    if isinstance(source_hash, str) and not source_hash.strip():
+        raise ValueError("source_hash cannot be empty")
+    
+    # Validate transform_version
+    if transform_version is None:
+        raise ValueError("transform_version is required")
+    if not isinstance(transform_version, int) or transform_version <= 0:
+        raise ValueError("transform_version must be positive")
+
+
 def _resolve_account_id(account_code: str, conn: Connection) -> str:
     """Resolve GL account code to UUID, with fail-fast on missing accounts.
 
@@ -139,6 +164,9 @@ def load_journal_entries(
     lines_inserted = 0
 
     for entry in entries:
+        # Validate lineage before processing
+        _validate_lineage(entry)
+        
         # Check if entry already exists (idempotency)
         existing = conn.execute(
             text("SELECT id FROM journal_entries WHERE txn_id = :tid"),
