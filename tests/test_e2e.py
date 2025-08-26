@@ -60,9 +60,14 @@ def _get_docker_compose_cmd() -> list[str] | None:
 @pytest.fixture(scope="module")
 def compose_services() -> Generator[None, None, None]:
     """Start Docker Compose services for testing."""
-    # Skip if not in CI or if DATABASE_URL already set
-    if os.getenv("DATABASE_URL") and not os.getenv("CI"):
-        # Use existing database
+    # Skip docker-compose if in CI (use GitHub's Postgres service) or DATABASE_URL set
+    if os.getenv("CI") or os.getenv("DATABASE_URL"):
+        # CI: Use GitHub Actions Postgres service, or Local: Use existing database
+        database_url = os.getenv(
+            "DATABASE_URL",
+            "postgresql://pfetl_user:pfetl_password@localhost:5432/pfetl",
+        )
+        wait_for_db(database_url)
         yield
         return
 

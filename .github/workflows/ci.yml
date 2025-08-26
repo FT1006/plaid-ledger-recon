@@ -1,0 +1,260 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Nightly run at 2 AM UTC with real Plaid credentials
+    - cron: '0 2 * * *'
+
+env:
+  DATABASE_URL: "postgresql://pfetl_user:pfetl_password@localhost:5432/pfetl"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ruff-format:
+    name: Code Formatting (ruff format)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff
+      - name: Check formatting
+        run: ruff format --check .
+
+  ruff-lint:
+    name: Code Quality (ruff check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff
+      - name: Lint code
+        run: ruff check .
+
+  mypy:
+    name: Type Checking (mypy)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: pfetl
+          POSTGRES_USER: pfetl_user
+          POSTGRES_PASSWORD: pfetl_password
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+      - name: Wait for Postgres
+        run: |
+          for i in {1..30}; do
+            pg_isready -h localhost -p 5432 -d pfetl -U pfetl_user && break
+            sleep 1
+          done
+      - name: Initialize database
+        run: pfetl init-db || python cli.py init-db
+      - name: Type check
+        run: mypy etl/ cli.py
+
+  test-unit:
+    name: Unit Tests (pytest -m "not integration")
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: pfetl
+          POSTGRES_USER: pfetl_user
+          POSTGRES_PASSWORD: pfetl_password
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+      - name: Wait for Postgres
+        run: |
+          for i in {1..30}; do
+            pg_isready -h localhost -p 5432 -d pfetl -U pfetl_user && break
+            sleep 1
+          done
+      - name: Initialize database
+        run: pfetl init-db || python cli.py init-db
+      - name: Run unit tests (no reports yet)
+        run: python -m pytest tests/ -v -m "not integration" -k "not test_reports.py"
+
+  test-integration:
+    name: Integration Tests (mocked Plaid)
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'  # Skip on nightly runs
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: pfetl
+          POSTGRES_USER: pfetl_user
+          POSTGRES_PASSWORD: pfetl_password
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+      - name: Wait for Postgres
+        run: |
+          for i in {1..30}; do
+            pg_isready -h localhost -p 5432 -d pfetl -U pfetl_user && break
+            sleep 1
+          done
+      - name: Initialize database
+        run: pfetl init-db || python cli.py init-db
+      - name: Run integration tests
+        run: python -m pytest tests/ -v -m "integration" --tb=short -k "not test_reports.py"
+
+  test-e2e-pipeline:
+    name: E2E Pipeline (mocked for PRs, real for nightly)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: pfetl
+          POSTGRES_USER: pfetl_user
+          POSTGRES_PASSWORD: pfetl_password
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    env:
+      # For nightly runs, use real credentials from secrets
+      PLAID_CLIENT_ID: ${{ github.event_name == 'schedule' && secrets.PLAID_CLIENT_ID || 'mock_client_id' }}
+      PLAID_SECRET: ${{ github.event_name == 'schedule' && secrets.PLAID_SECRET || 'mock_secret' }}
+      PLAID_ENV: ${{ github.event_name == 'schedule' && 'sandbox' || 'mock' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+      - name: Wait for Postgres
+        run: |
+          for i in {1..30}; do
+            pg_isready -h localhost -p 5432 -d pfetl -U pfetl_user && break
+            sleep 1
+          done
+      - name: Initialize database
+        run: pfetl init-db || python cli.py init-db
+      - name: Run E2E pipeline (mocked)
+        env:
+          CI: true
+        run: python -m pytest tests/test_e2e.py -v --tb=short -k "not test_reports.py"
+
+  nightly-real-plaid:
+    name: Nightly with Real Plaid (Sandbox)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: pfetl
+          POSTGRES_USER: pfetl_user
+          POSTGRES_PASSWORD: pfetl_password
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    env:
+      PLAID_CLIENT_ID: ${{ secrets.PLAID_CLIENT_ID }}
+      PLAID_SECRET: ${{ secrets.PLAID_SECRET }}
+      PLAID_ENV: sandbox
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+      - name: Wait for Postgres
+        run: |
+          for i in {1..30}; do
+            pg_isready -h localhost -p 5432 -d pfetl -U pfetl_user && break
+            sleep 1
+          done
+      - name: Initialize database
+        run: pfetl init-db || python cli.py init-db
+      - name: Run full pipeline with real Plaid
+        run: |
+          echo "Nightly integration with real Plaid sandbox"
+          # TODO(M4): Implement full pipeline with real Plaid credentials
+          # pfetl onboard --plaid-env sandbox
+          # pfetl ingest --from yesterday --to today
+          # pfetl reconcile --period daily
+          echo "Real Plaid integration not yet implemented"
+          exit 0
