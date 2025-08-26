@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 
 def load_accounts(accounts: list[dict[str, Any]], conn: Connection | None) -> None:
-    """Upsert accounts by plaid_account_id.
+    """Upsert accounts by plaid_account_id into ingest_accounts shim table.
 
     Uses INSERT ... ON CONFLICT for PostgreSQL, fallback for SQLite tests.
     """
@@ -32,7 +32,7 @@ def load_accounts(accounts: list[dict[str, Any]], conn: Connection | None) -> No
         for account in accounts:
             conn.execute(
                 text("""
-                    INSERT INTO accounts (
+                    INSERT INTO ingest_accounts (
                         plaid_account_id, name, type, subtype, currency
                     )
                     VALUES (:plaid_account_id, :name, :type, :subtype, :currency)
@@ -49,7 +49,10 @@ def load_accounts(accounts: list[dict[str, Any]], conn: Connection | None) -> No
         for account in accounts:
             # Check if exists
             existing = conn.execute(
-                text("SELECT id FROM accounts WHERE plaid_account_id = :pid"),
+                text(
+                    "SELECT plaid_account_id FROM ingest_accounts "
+                    "WHERE plaid_account_id = :pid"
+                ),
                 {"pid": account["plaid_account_id"]},
             ).fetchone()
 
@@ -57,7 +60,7 @@ def load_accounts(accounts: list[dict[str, Any]], conn: Connection | None) -> No
                 # Update
                 conn.execute(
                     text("""
-                        UPDATE accounts
+                        UPDATE ingest_accounts
                         SET name = :name, type = :type, subtype = :subtype,
                             currency = :currency
                         WHERE plaid_account_id = :plaid_account_id
@@ -68,7 +71,7 @@ def load_accounts(accounts: list[dict[str, Any]], conn: Connection | None) -> No
                 # Insert
                 conn.execute(
                     text("""
-                        INSERT INTO accounts (
+                        INSERT INTO ingest_accounts (
                             plaid_account_id, name, type, subtype, currency
                         )
                         VALUES (:plaid_account_id, :name, :type, :subtype, :currency)
@@ -96,12 +99,6 @@ def load_journal_entries(
     started_at = datetime.now(UTC).isoformat()
     entries_inserted = 0
     lines_inserted = 0
-
-    # Build account name -> id lookup
-    account_lookup = {}
-    result = conn.execute(text("SELECT id, name FROM accounts"))
-    for row in result:
-        account_lookup[row[1]] = row[0]
 
     for entry in entries:
         # Check if entry already exists (idempotency)
@@ -139,21 +136,16 @@ def load_journal_entries(
             {"tid": entry["txn_id"]},
         ).scalar()
 
-        # Insert journal lines
+        # Insert journal lines (using shim table with text account names)
         for line in entry["lines"]:
-            account_name = line["account"]
-            if account_name not in account_lookup:
-                msg = f"Account '{account_name}' not found in accounts table"
-                raise ValueError(msg)
-
             conn.execute(
                 text("""
-                    INSERT INTO journal_lines (entry_id, account_id, side, amount)
-                    VALUES (:entry_id, :account_id, :side, :amount)
+                    INSERT INTO journal_lines (entry_id, account, side, amount)
+                    VALUES (:entry_id, :account, :side, :amount)
                 """),
                 {
                     "entry_id": entry_id,
-                    "account_id": account_lookup[account_name],
+                    "account": line["account"],  # Direct text account name
                     "side": line["side"],
                     "amount": float(line["amount"]),  # Convert Decimal for DB
                 },
@@ -179,17 +171,17 @@ def load_journal_entries(
             "row_counts": row_counts,
             "started_at": started_at,
             "finished_at": finished_at,
-            "success": 1,
+            "success": True,
         },
     )
 
 
 def get_account_by_plaid_id(plaid_id: str, conn: Connection) -> dict[str, Any] | None:
-    """Fetch account row by plaid_account_id."""
+    """Fetch account row by plaid_account_id from ingest_accounts shim."""
     result = conn.execute(
         text("""
             SELECT plaid_account_id, name, type, subtype, currency
-            FROM accounts
+            FROM ingest_accounts
             WHERE plaid_account_id = :pid
         """),
         {"pid": plaid_id},

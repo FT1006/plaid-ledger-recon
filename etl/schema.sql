@@ -3,6 +3,27 @@
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
+-- SHIM TABLES for MVP prototype (bypass GL constraints)
+
+-- Shim for Plaid accounts (allows depository/credit/etc)
+CREATE TABLE IF NOT EXISTS ingest_accounts (
+  plaid_account_id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL,        -- depository/credit/... (Plaid domain)
+  subtype TEXT NOT NULL,
+  currency TEXT NOT NULL
+);
+
+-- Shim for journal lines (text account names, no FK)
+CREATE TABLE IF NOT EXISTS journal_lines (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  entry_id UUID NOT NULL REFERENCES journal_entries(id) ON DELETE CASCADE,
+  account TEXT NOT NULL,      -- free-form "Expenses:Dining:Restaurants"
+  side TEXT NOT NULL CHECK (side IN ('debit','credit')),
+  amount NUMERIC(15,2) NOT NULL CHECK (amount >= 0)
+);
+CREATE INDEX IF NOT EXISTS idx_journal_lines_entry ON journal_lines(entry_id);
+
 -- 1) Raw landing (for audit + hashing determinism)
 CREATE TABLE IF NOT EXISTS raw_transactions (
   item_id       TEXT                 NOT NULL,
