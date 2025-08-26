@@ -344,6 +344,128 @@ def test_ingest_empty_transaction_set() -> None:
         )
 
 
+def test_ingest_can_run_twice_without_error() -> None:
+    """Running ingest twice should not create duplicate entries.
+
+    Per ADR: ETL operations must be idempotent for safe retries.
+    """
+    with (
+        patch("cli.sync_transactions") as sync_txns,
+        patch("cli.fetch_accounts") as fetch_accts,
+        patch("cli.map_plaid_to_journal") as map_to_journal,
+        patch("cli.load_accounts"),
+        patch("cli.load_journal_entries") as load_entries,
+        patch("cli.load_dotenv"),
+        patch("cli.os.getenv") as getenv,
+        patch("cli.create_engine"),
+    ):
+        getenv.side_effect = lambda k: {
+            "DATABASE_URL": "postgresql://test",
+            "PLAID_ACCESS_TOKEN": "test_token",
+        }.get(k)
+
+        # Set up data for first run
+        sync_txns.return_value = iter([
+            {
+                "transaction_id": "txn_001",
+                "account_id": "acc_001",
+                "amount": 100.00,
+                "date": "2024-01-15",
+                "name": "Test Transaction",
+                "pending": False,
+            },
+        ])
+
+        fetch_accts.return_value = [
+            {
+                "account_id": "acc_001",
+                "type": "depository",
+                "subtype": "checking",
+                "name": "Test Account",
+                "iso_currency_code": "USD",
+            },
+        ]
+
+        map_to_journal.return_value = [
+            {
+                "txn_id": "txn_001",
+                "txn_date": date(2024, 1, 15),
+                "description": "Test Transaction",
+                "currency": "USD",
+                "source_hash": "test_hash",
+                "transform_version": 1,
+                "lines": [
+                    {
+                        "account": "Expenses:Dining",
+                        "side": "debit",
+                        "amount": Decimal("100.00"),
+                    },
+                    {
+                        "account": "Assets:Bank:Checking",
+                        "side": "credit",
+                        "amount": Decimal("100.00"),
+                    },
+                ],
+            },
+        ]
+
+        # First run
+        result = runner.invoke(
+            app,
+            [
+                "ingest",
+                "--item-id",
+                "test_item",
+                "--from",
+                "2024-01-01",
+                "--to",
+                "2024-01-31",
+            ],
+        )
+        assert result.exit_code == 0
+
+        # Reset mocks for second run with same data
+        sync_txns.reset_mock()
+        sync_txns.return_value = iter([
+            {
+                "transaction_id": "txn_001",  # Same ID
+                "account_id": "acc_001",
+                "amount": 100.00,
+                "date": "2024-01-15",
+                "name": "Test Transaction",
+                "pending": False,
+            },
+        ])
+
+        # Second run - should skip duplicates
+        result = runner.invoke(
+            app,
+            [
+                "ingest",
+                "--item-id",
+                "test_item",
+                "--from",
+                "2024-01-01",
+                "--to",
+                "2024-01-31",
+            ],
+        )
+        assert result.exit_code == 0
+
+        # Verify load_journal_entries was called twice but should have
+        # handled duplicates properly (implementation detail in loader)
+        assert load_entries.call_count == 2
+
+        # After second run:
+        first_args = load_entries.call_args_list[0].args[0]
+        second_args = load_entries.call_args_list[1].args[0]
+        assert (
+            [e["txn_id"] for e in first_args]
+            == [e["txn_id"] for e in second_args]
+            == ["txn_001"]
+        )
+
+
 def test_ingest_row_count_reporting() -> None:
     """Successful ingest should report row counts.
 
