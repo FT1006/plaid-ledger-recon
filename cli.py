@@ -23,6 +23,11 @@ app = typer.Typer(
 )
 
 
+@app.callback()
+def _load_env() -> None:
+    load_dotenv()
+
+
 def _parse_date(value: str) -> date:
     """Parse date string in YYYY-MM-DD format."""
     try:
