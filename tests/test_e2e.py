@@ -208,6 +208,23 @@ def test_e2e_full_ingest_pipeline(compose_services: Any) -> None:  # noqa: ARG00
             "No ETL load event recorded"
         )
 
+        # Verify FK integrity: all journal_lines have valid account_id (Task 9)
+        # Only check if account_id column exists (post-migration)
+        try:
+            # Try to select account_id - if column doesn't exist, we'll get an exception
+            conn.execute(text("SELECT account_id FROM journal_lines LIMIT 1"))
+            has_account_id = True
+        except Exception:
+            has_account_id = False
+
+        if has_account_id:
+            null_account_ids = conn.execute(
+                text("SELECT COUNT(*) FROM journal_lines WHERE account_id IS NULL")
+            ).scalar()
+            assert null_account_ids == 0, (
+                f"Found {null_account_ids} journal_lines with NULL account_id"
+            )
+
     # 5. Test idempotency - run again with same date range
     result = subprocess.run(  # noqa: S603
         [
