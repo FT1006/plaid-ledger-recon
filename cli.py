@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """CLI interface for Plaid Financial ETL pipeline."""
 
+import json
 import os
 from datetime import date
 from pathlib import Path
@@ -14,6 +15,7 @@ from sqlalchemy import create_engine
 from etl.connectors.plaid_client import create_plaid_client_from_env
 from etl.extract import fetch_accounts, sync_transactions
 from etl.load import load_accounts, load_journal_entries
+from etl.reconcile import run_reconciliation
 from etl.transform import map_plaid_to_journal
 
 app = typer.Typer(
@@ -194,8 +196,53 @@ def reconcile(
     out: Annotated[str, typer.Option("--out", help="Output file for recon.json")],
 ) -> None:
     """Run reconciliation checks and generate recon.json."""
-    typer.echo("🚧 reconcile: Not yet implemented")
-    raise typer.Exit(1)
+    load_dotenv()
+
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        typer.echo("❌ DATABASE_URL not found in environment", err=True)
+        raise typer.Exit(2)
+
+    access_token = os.getenv("PLAID_ACCESS_TOKEN")
+    if not access_token:
+        typer.echo("❌ PLAID_ACCESS_TOKEN not set in environment", err=True)
+        raise typer.Exit(1)
+
+    def _handle_success() -> None:
+        typer.echo(f"✅ Reconciliation passed for {period}")
+        typer.echo(f"📄 Results written to {out}")
+        raise typer.Exit(0)
+
+    def _handle_failure() -> None:
+        typer.echo(f"❌ Reconciliation failed for {period}", err=True)
+        typer.echo(f"📄 Details written to {out}", err=True)
+        raise typer.Exit(1)
+
+    try:
+        # Fetch current Plaid balances for comparison
+        accounts = fetch_accounts(access_token)
+        plaid_balances = {
+            a["account_id"]: a.get("balances", {}).get("current", 0.0) for a in accounts
+        }
+
+        # Connect to database and run reconciliation
+        engine = create_engine(database_url)
+        with engine.begin() as conn:
+            result = run_reconciliation(conn, period, plaid_balances)
+
+        # Write result to output file
+        out_path = Path(out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with out_path.open("w") as f:
+            json.dump(result, f, indent=2, default=str)
+
+        if result["success"]:
+            _handle_success()
+        _handle_failure()
+
+    except Exception as e:
+        typer.echo(f"❌ Error during reconciliation: {e}", err=True)
+        raise typer.Exit(1) from e
 
 
 @app.command("report")
