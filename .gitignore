@@ -216,10 +216,8 @@ $RECYCLE.BIN/
 *.claude
 
 # Documentation (customize as needed)
-docs/*
-!docs/plan/
-!docs/api/
-!docs/README.md
+# Note: docs/ is now for GitHub Pages, _devdocs/ is for private notes
+_devdocs/
 
 # Handovers and temporary files
 temp_tests/
