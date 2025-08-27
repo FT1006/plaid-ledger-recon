@@ -14,7 +14,12 @@ from sqlalchemy import create_engine
 
 from etl.connectors.plaid_client import create_plaid_client_from_env
 from etl.extract import fetch_accounts, sync_transactions
-from etl.load import load_accounts, load_journal_entries
+from etl.load import (
+    link_plaid_to_account,
+    load_accounts,
+    load_journal_entries,
+    upsert_plaid_accounts,
+)
 from etl.reconcile import run_reconciliation
 from etl.reports.render import render_balance_sheet, render_cash_flow, write_pdf
 from etl.transform import map_plaid_to_journal
@@ -177,10 +182,22 @@ def ingest(
             for a in accts
         ]
 
+        plaid_accts = [
+            {
+                "plaid_account_id": a["account_id"],
+                "name": a["name"],
+                "type": a["type"],
+                "subtype": a["subtype"],
+                "currency": a.get("iso_currency_code") or "USD",
+            }
+            for a in accts
+        ]
+
         # Connect to database and load data
         engine = create_engine(database_url)
         with engine.begin() as conn:
-            load_accounts(load_accts, conn)
+            upsert_plaid_accounts(plaid_accts, conn)  # New canonical table
+            load_accounts(load_accts, conn)  # Legacy shim (kept for now)
             load_journal_entries(entries, conn)
 
         typer.echo(f"✅ Ingested {len(txns)} transactions.")
@@ -285,24 +302,24 @@ def report(
         # Generate Balance Sheet
         bs_html = render_balance_sheet(period, engine)
         if "html" in requested_formats:
-            bs_html_path = out_path / f"balance_sheet_{period.lower()}.html"
+            bs_html_path = out_path / f"bs_{period}.html"
             bs_html_path.write_text(bs_html)
             typer.echo(f"✅ Generated: {bs_html_path}")
 
         if "pdf" in requested_formats:
-            bs_pdf_path = out_path / f"balance_sheet_{period.lower()}.pdf"
+            bs_pdf_path = out_path / f"bs_{period}.pdf"
             write_pdf(bs_html, bs_pdf_path)
             typer.echo(f"✅ Generated: {bs_pdf_path}")
 
         # Generate Cash Flow
         cf_html = render_cash_flow(period, engine)
         if "html" in requested_formats:
-            cf_html_path = out_path / f"cash_flow_{period.lower()}.html"
+            cf_html_path = out_path / f"cf_{period}.html"
             cf_html_path.write_text(cf_html)
             typer.echo(f"✅ Generated: {cf_html_path}")
 
         if "pdf" in requested_formats:
-            cf_pdf_path = out_path / f"cash_flow_{period.lower()}.pdf"
+            cf_pdf_path = out_path / f"cf_{period}.pdf"
             write_pdf(cf_html, cf_pdf_path)
             typer.echo(f"✅ Generated: {cf_pdf_path}")
 
@@ -310,6 +327,27 @@ def report(
 
     except Exception as e:
         typer.echo(f"❌ Error generating reports: {e}", err=True)
+        raise typer.Exit(1) from e
+
+
+@app.command("map-account")
+def map_account(
+    plaid_account_id: Annotated[str, typer.Option("--plaid-account-id")],
+    gl_code: Annotated[str, typer.Option("--gl-code")],
+) -> None:
+    """Map a Plaid account to a GL account."""
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        typer.echo("❌ DATABASE_URL not found in environment", err=True)
+        raise typer.Exit(2)
+
+    try:
+        engine = create_engine(database_url)
+        with engine.begin() as conn:
+            link_plaid_to_account(plaid_account_id, gl_code, conn)
+        typer.echo(f"✅ Linked {plaid_account_id} → {gl_code}")
+    except Exception as e:
+        typer.echo(f"❌ Mapping failed: {e}", err=True)
         raise typer.Exit(1) from e
 
 

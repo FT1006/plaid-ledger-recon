@@ -83,27 +83,31 @@ def load_accounts(accounts: list[dict[str, Any]], conn: Connection | None) -> No
 
 def _validate_lineage(entry: dict[str, Any]) -> None:
     """Validate that entry has proper lineage information.
-    
+
     Args:
         entry: Journal entry dictionary
-        
+
     Raises:
         ValueError: If source_hash or transform_version invalid
     """
     source_hash = entry.get("source_hash")
     transform_version = entry.get("transform_version")
-    
+
     # Validate source_hash
     if source_hash is None:
-        raise ValueError("source_hash is required")
+        msg = "source_hash is required"
+        raise ValueError(msg)
     if isinstance(source_hash, str) and not source_hash.strip():
-        raise ValueError("source_hash cannot be empty")
-    
+        msg = "source_hash cannot be empty"
+        raise ValueError(msg)
+
     # Validate transform_version
     if transform_version is None:
-        raise ValueError("transform_version is required")
+        msg = "transform_version is required"
+        raise ValueError(msg)
     if not isinstance(transform_version, int) or transform_version <= 0:
-        raise ValueError("transform_version must be positive")
+        msg = "transform_version must be positive"
+        raise ValueError(msg)
 
 
 def _resolve_account_id(account_code: str, conn: Connection) -> str:
@@ -166,7 +170,7 @@ def load_journal_entries(
     for entry in entries:
         # Validate lineage before processing
         _validate_lineage(entry)
-        
+
         # Check if entry already exists (idempotency)
         existing = conn.execute(
             text("SELECT id FROM journal_entries WHERE txn_id = :tid"),
@@ -271,3 +275,128 @@ def get_entries_count(conn: Connection) -> int:
     """Return count of journal entries."""
     result = conn.execute(text("SELECT COUNT(*) FROM journal_entries")).scalar()
     return int(result) if result else 0
+
+
+def upsert_plaid_accounts(accounts: list[dict[str, Any]], conn: Connection) -> None:
+    """Upsert Plaid accounts into plaid_accounts table."""
+    if not accounts:
+        return
+
+    # Check if we're using PostgreSQL or SQLite
+    dialect = conn.dialect.name
+
+    if dialect == "postgresql":
+        # PostgreSQL: Use INSERT ... ON CONFLICT DO UPDATE
+        for account in accounts:
+            conn.execute(
+                text("""
+                    INSERT INTO plaid_accounts (
+                        plaid_account_id, name, type, subtype, currency
+                    )
+                    VALUES (:plaid_account_id, :name, :type, :subtype, :currency)
+                    ON CONFLICT (plaid_account_id) DO UPDATE SET
+                        name = EXCLUDED.name,
+                        type = EXCLUDED.type,
+                        subtype = EXCLUDED.subtype,
+                        currency = EXCLUDED.currency
+                """),
+                account,
+            )
+    else:
+        # SQLite (for tests): Manual upsert
+        for account in accounts:
+            # Check if exists
+            existing = conn.execute(
+                text(
+                    "SELECT plaid_account_id FROM plaid_accounts "
+                    "WHERE plaid_account_id = :pid"
+                ),
+                {"pid": account["plaid_account_id"]},
+            ).fetchone()
+
+            if existing:
+                # Update
+                conn.execute(
+                    text("""
+                        UPDATE plaid_accounts
+                        SET name = :name, type = :type, subtype = :subtype,
+                            currency = :currency
+                        WHERE plaid_account_id = :plaid_account_id
+                    """),
+                    account,
+                )
+            else:
+                # Insert
+                conn.execute(
+                    text("""
+                        INSERT INTO plaid_accounts (
+                            plaid_account_id, name, type, subtype, currency
+                        )
+                        VALUES (:plaid_account_id, :name, :type, :subtype, :currency)
+                    """),
+                    account,
+                )
+
+
+def link_plaid_to_account(
+    plaid_account_id: str, account_code: str, conn: Connection
+) -> None:
+    """Link a Plaid account to a GL account via account_links."""
+    # Pre-check: Verify Plaid account exists
+    plaid_exists = conn.execute(
+        text("SELECT 1 FROM plaid_accounts WHERE plaid_account_id = :pid"),
+        {"pid": plaid_account_id},
+    ).scalar()
+    if not plaid_exists:
+        msg = f"Plaid account not found: {plaid_account_id}"
+        raise ValueError(msg)
+
+    # Resolve GL account code to UUID
+    account_id = conn.execute(
+        text("SELECT id FROM accounts WHERE code = :code"), {"code": account_code}
+    ).scalar()
+
+    if not account_id:
+        msg = f"GL account not found: {account_code}"
+        raise ValueError(msg)
+
+    # Check if we're using PostgreSQL or SQLite
+    dialect = conn.dialect.name
+
+    if dialect == "postgresql":
+        # PostgreSQL: Use INSERT ... ON CONFLICT DO UPDATE
+        conn.execute(
+            text("""
+                INSERT INTO account_links (plaid_account_id, account_id)
+                VALUES (:plaid_account_id, :account_id)
+                ON CONFLICT (plaid_account_id) DO UPDATE SET
+                    account_id = EXCLUDED.account_id
+            """),
+            {"plaid_account_id": plaid_account_id, "account_id": account_id},
+        )
+    else:
+        # SQLite (for tests): Manual upsert
+        existing = conn.execute(
+            text("SELECT id FROM account_links WHERE plaid_account_id = :pid"),
+            {"pid": plaid_account_id},
+        ).fetchone()
+
+        if existing:
+            # Update
+            conn.execute(
+                text("""
+                    UPDATE account_links
+                    SET account_id = :account_id
+                    WHERE plaid_account_id = :plaid_account_id
+                """),
+                {"plaid_account_id": plaid_account_id, "account_id": account_id},
+            )
+        else:
+            # Insert
+            conn.execute(
+                text("""
+                    INSERT INTO account_links (plaid_account_id, account_id)
+                    VALUES (:plaid_account_id, :account_id)
+                """),
+                {"plaid_account_id": plaid_account_id, "account_id": account_id},
+            )
