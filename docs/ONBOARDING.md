@@ -1,5 +1,7 @@
 # Onboarding & First Run
 
+Complete end-to-end walkthrough from fresh environment to reconciled reports.
+
 ## Prerequisites
 - Docker + Docker Compose
 - Python 3.11+ (for the CLI)
@@ -11,7 +13,9 @@
 python3 -m pip install -e ".[dev]"
 ```
 
-## 1) Environment
+## Quick Start (Full Workflow)
+
+### 1) Environment Setup
 Create `.env` in repo root:
 ```env
 PLAID_CLIENT_ID=your_sandbox_client_id
@@ -20,36 +24,97 @@ PLAID_ENV=sandbox
 DATABASE_URL=postgresql://pfetl_user:pfetl_password@localhost:5432/pfetl
 ```
 
-## 2) Database
+### 2) Initialize Infrastructure
 
 ```bash
-make db-up
+# Start Postgres
+make up
+
+# Initialize database schema
 pfetl init-db
 ```
 
-## 3) Sandbox onboarding
+### 3) Onboard Sandbox Bank Account
 
 ```bash
-pfetl onboard --sandbox --write-env
-# prints an item_id and appends PLAID_ACCESS_TOKEN / PLAID_ITEM_ID to .env
+# Creates sandbox institution and prints ITEM_ID
+pfetl onboard --sandbox
+# Example output: abc123
 ```
 
-## 4) Ingest a date window
+### 4) Ingest Transactions
 
 ```bash
-pfetl ingest --item-id "$PLAID_ITEM_ID" --from 2024-01-01 --to 2024-01-31
+# Fetch 90 days of transactions
+pfetl ingest --item-id abc123 --from 2024-01-01 --to 2024-03-31
+# ✅ Ingested 1234 transactions.
 ```
 
-## 5) Verify rows
+### 5) Map Accounts for Reconciliation
 
 ```bash
-make db-shell    # Database should be ready within 10-15 seconds
+# List available Plaid accounts
+make db-shell
+pfetl=# SELECT plaid_account_id, name, type FROM plaid_accounts;
+pfetl=# \q
+
+# Map each cash account to GL code
+pfetl map-account --plaid-account-id plaid_123 --gl-code "Assets:Bank:Checking"
+pfetl map-account --plaid-account-id plaid_456 --gl-code "Assets:Bank:Savings"
+# ✅ Linked plaid_123 → Assets:Bank:Checking
+```
+
+### 6) Run Reconciliation Gates
+
+```bash
+# Period-aware reconciliation with Plaid balance comparison
+pfetl reconcile --item-id abc123 --period 2024Q1 --out build/recon.json
+# ✅ Reconciliation passed for 2024Q1
+# 📄 Results written to build/recon.json
+```
+
+### 7) Generate Reports
+
+```bash
+# Deterministic HTML + PDF reports
+pfetl report --item-id abc123 --period 2024Q1 --formats html,pdf --out build/
+# ✅ Generated: build/bs_2024Q1.html
+# ✅ Generated: build/bs_2024Q1.pdf
+# ✅ Generated: build/cf_2024Q1.html
+# ✅ Generated: build/cf_2024Q1.pdf
+```
+
+## Verification Steps
+
+### Database Integrity
+```bash
+make db-shell
 pfetl=# SELECT COUNT(*) FROM journal_entries;
 pfetl=# SELECT COUNT(*) FROM journal_lines;
+pfetl=# SELECT * FROM etl_events ORDER BY started_at DESC LIMIT 5;
 ```
 
-## Expected outcomes
+### Account Mapping Status
+```bash
+pfetl=# SELECT 
+  pa.plaid_account_id, 
+  pa.name, 
+  a.code 
+FROM plaid_accounts pa
+LEFT JOIN account_links al ON pa.plaid_account_id = al.plaid_account_id
+LEFT JOIN accounts a ON al.account_id = a.id;
+```
 
-* No duplicates when you re-run ingest for the same window
-* Every journal entry balances (sum of debits == sum of credits)
-* `etl_events` includes at least one `"load"` record
+### Reconciliation Results
+```bash
+cat build/recon.json | jq '.success, .cash_variance_total'
+```
+
+## Expected Outcomes
+
+* **Idempotency**: Re-running ingest for same date window creates no duplicates
+* **Balance Integrity**: All journal entries balance (∑debits = ∑credits)
+* **FK Enforcement**: journal_lines.account_id → accounts.id foreign keys enforced
+* **Audit Trail**: ETL events logged with row counts and timestamps
+* **Deterministic Output**: Same input data produces identical report hashes
+* **Reconciliation Gates**: Cash variance ≤ 0.01 vs Plaid balances, exit non-zero on failure
