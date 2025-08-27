@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Any
 from jinja2 import Environment, FileSystemLoader
 from sqlalchemy import text
 
+from etl.reconcile import parse_period
+
 if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
 
@@ -30,33 +32,6 @@ def _format_amount(amount: Decimal | float | int) -> str:
     return f"{amount.quantize(Decimal('0.01')):.2f}"
 
 
-def _parse_period(period: str) -> tuple[str, str]:
-    """Parse period string to date range.
-
-    Args:
-        period: Period like "2024Q1"
-
-    Returns:
-        Tuple of (start_date, end_date) as ISO strings
-
-    TODO(M5): Support more period formats beyond quarterly
-    """
-    if period.endswith("Q1"):
-        year = period[:4]
-        return f"{year}-01-01", f"{year}-03-31"
-    if period.endswith("Q2"):
-        year = period[:4]
-        return f"{year}-04-01", f"{year}-06-30"
-    if period.endswith("Q3"):
-        year = period[:4]
-        return f"{year}-07-01", f"{year}-09-30"
-    if period.endswith("Q4"):
-        year = period[:4]
-        return f"{year}-10-01", f"{year}-12-31"
-    msg = f"Unsupported period format: {period}"
-    raise ValueError(msg)
-
-
 def render_balance_sheet(period: str, engine: "Engine") -> str:
     """Generate deterministic HTML for balance sheet.
 
@@ -67,7 +42,7 @@ def render_balance_sheet(period: str, engine: "Engine") -> str:
     Returns:
         HTML string with deterministic formatting
     """
-    start_date, end_date = _parse_period(period)
+    start_date, end_date = parse_period(period)
 
     # Query for account balances with deterministic ordering
     query = text("""
@@ -156,7 +131,7 @@ def render_cash_flow(period: str, engine: "Engine") -> str:
     Returns:
         HTML string with deterministic formatting
     """
-    start_date, end_date = _parse_period(period)
+    start_date, end_date = parse_period(period)
 
     # Query for cash flow data with deterministic ordering
     # For now, classify all non-cash transactions as operating activities
@@ -256,7 +231,7 @@ def write_pdf(html: str, out_path: Path) -> Path:
     Returns:
         Path to created PDF file
     """
-    from weasyprint import HTML
+    from weasyprint import HTML  # noqa: PLC0415
 
     # Ensure parent directory exists
     out_path.parent.mkdir(parents=True, exist_ok=True)

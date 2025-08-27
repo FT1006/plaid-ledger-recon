@@ -11,6 +11,31 @@ if TYPE_CHECKING:
     from sqlalchemy.engine import Connection
 
 
+def parse_period(period: str) -> tuple[str, str]:
+    """Parse period string to date range.
+
+    Args:
+        period: Period like "2024Q1"
+
+    Returns:
+        Tuple of (start_date, end_date) as ISO strings
+    """
+    if period.endswith("Q1"):
+        year = period[:4]
+        return f"{year}-01-01", f"{year}-03-31"
+    if period.endswith("Q2"):
+        year = period[:4]
+        return f"{year}-04-01", f"{year}-06-30"
+    if period.endswith("Q3"):
+        year = period[:4]
+        return f"{year}-07-01", f"{year}-09-30"
+    if period.endswith("Q4"):
+        year = period[:4]
+        return f"{year}-10-01", f"{year}-12-31"
+    msg = f"Unsupported period format: {period}"
+    raise ValueError(msg)
+
+
 def check_entry_balance(conn: Connection, _period: str) -> dict[str, Any]:
     """Check that all journal entries have balanced debits and credits.
 
