@@ -31,6 +31,16 @@ app = typer.Typer(
 )
 
 
+def _mark_success() -> str:
+    """Return success indicator (emoji or plain text based on PFETL_PLAIN env var)."""
+    return "" if os.getenv("PFETL_PLAIN") == "1" else "✅"
+
+
+def _mark_error() -> str:
+    """Return error indicator (emoji or plain text based on PFETL_PLAIN env var)."""
+    return "" if os.getenv("PFETL_PLAIN") == "1" else "❌"
+
+
 @app.callback()
 def _load_env() -> None:
     load_dotenv()
@@ -41,7 +51,9 @@ def _parse_date(value: str) -> date:
     try:
         return date.fromisoformat(value)
     except ValueError:
-        typer.echo(f"❌ Invalid date format: {value}. Use YYYY-MM-DD", err=True)
+        typer.echo(
+            f"{_mark_error()} Invalid date format: {value}. Use YYYY-MM-DD", err=True
+        )
         raise typer.Exit(1) from None
 
 
@@ -52,12 +64,12 @@ def init_db() -> None:
 
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
-        typer.echo("❌ DATABASE_URL not found in environment", err=True)
+        typer.echo(f"{_mark_error()} DATABASE_URL not found in environment", err=True)
         raise typer.Exit(2)
 
     schema_path = Path(__file__).parent / "etl" / "schema.sql"
     if not schema_path.exists():
-        typer.echo(f"❌ Schema file not found: {schema_path}", err=True)
+        typer.echo(f"{_mark_error()} Schema file not found: {schema_path}", err=True)
         raise typer.Exit(2)
 
     try:
@@ -66,12 +78,12 @@ def init_db() -> None:
             cur.execute(schema_sql)
             conn.commit()
 
-        typer.echo("✅ Database schema initialized successfully")
+        typer.echo(f"{_mark_success()} Database schema initialized successfully")
     except psycopg.Error as e:
-        typer.echo(f"❌ Database error: {e}", err=True)
+        typer.echo(f"{_mark_error()} Database error: {e}", err=True)
         raise typer.Exit(1) from e
     except Exception as e:
-        typer.echo(f"❌ Unexpected error: {e}", err=True)
+        typer.echo(f"{_mark_error()} Unexpected error: {e}", err=True)
         raise typer.Exit(1) from e
 
 
@@ -134,19 +146,23 @@ def ingest(
     start = _parse_date(from_date)
     end = _parse_date(to_date)
     if start > end:
-        typer.echo("❌ Invalid date range: --from must be <= --to", err=True)
+        typer.echo(
+            f"{_mark_error()} Invalid date range: --from must be <= --to", err=True
+        )
         raise typer.Exit(1)
 
     # Check environment
     load_dotenv()
     access_token = os.getenv("PLAID_ACCESS_TOKEN")
     if not access_token:
-        typer.echo("❌ PLAID_ACCESS_TOKEN not set in environment", err=True)
+        typer.echo(
+            f"{_mark_error()} PLAID_ACCESS_TOKEN not set in environment", err=True
+        )
         raise typer.Exit(1)
 
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
-        typer.echo("❌ DATABASE_URL not found in environment", err=True)
+        typer.echo(f"{_mark_error()} DATABASE_URL not found in environment", err=True)
         raise typer.Exit(2)
 
     try:
@@ -200,10 +216,10 @@ def ingest(
             load_accounts(load_accts, conn)  # Legacy shim (kept for now)
             load_journal_entries(entries, conn)
 
-        typer.echo(f"✅ Ingested {len(txns)} transactions.")
+        typer.echo(f"{_mark_success()} Ingested {len(txns)} transactions.")
 
     except Exception as e:
-        typer.echo(f"❌ Error during ingest: {e}", err=True)
+        typer.echo(f"{_mark_error()} Error during ingest: {e}", err=True)
         raise typer.Exit(1) from e
 
 
@@ -212,12 +228,13 @@ def _load_balances_from_json(balances_json: str) -> dict[str, float]:
     try:
         data = json.loads(Path(balances_json).read_text())
     except Exception as e:
-        typer.echo(f"❌ Failed to read --balances-json: {e}", err=True)
+        typer.echo(f"{_mark_error()} Failed to read --balances-json: {e}", err=True)
         raise typer.Exit(1) from e
 
     if not isinstance(data, dict):
         typer.echo(
-            "❌ --balances-json must be JSON object {plaid_account_id: balance}",
+            f"{_mark_error()} --balances-json must be JSON object "
+            "{{plaid_account_id: balance}}",
             err=True,
         )
         raise typer.Exit(1)
@@ -227,7 +244,9 @@ def _load_balances_from_json(balances_json: str) -> dict[str, float]:
 def _load_live_plaid_balances(access_token: str | None) -> dict[str, float]:
     """Load live balances from Plaid API."""
     if not access_token:
-        typer.echo("❌ PLAID_ACCESS_TOKEN not set in environment", err=True)
+        typer.echo(
+            f"{_mark_error()} PLAID_ACCESS_TOKEN not set in environment", err=True
+        )
         raise typer.Exit(1)
     accounts = fetch_accounts(access_token)
     return {
@@ -256,19 +275,19 @@ def reconcile(
 
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
-        typer.echo("❌ DATABASE_URL not found in environment", err=True)
+        typer.echo(f"{_mark_error()} DATABASE_URL not found in environment", err=True)
         raise typer.Exit(2)
 
     access_token = os.getenv("PLAID_ACCESS_TOKEN")
 
     def _handle_success() -> None:
-        typer.echo(f"✅ Reconciliation passed for {period}")
-        typer.echo(f"📄 Results written to {out}")
+        typer.echo(f"{_mark_success()} Reconciliation passed for {period}")
+        typer.echo(f"Results written to {out}")
         raise typer.Exit(0)
 
     def _handle_failure() -> None:
-        typer.echo(f"❌ Reconciliation failed for {period}", err=True)
-        typer.echo(f"📄 Details written to {out}", err=True)
+        typer.echo(f"{_mark_error()} Reconciliation failed for {period}", err=True)
+        typer.echo(f"Details written to {out}", err=True)
         raise typer.Exit(1)
 
     try:
@@ -315,7 +334,7 @@ def reconcile(
                 )
             except Exception as e:
                 # Do not fail the reconcile command if event logging fails
-                typer.echo(f"⚠️  ETL event logging failed: {e}", err=True)
+                typer.echo(f"WARNING:  ETL event logging failed: {e}", err=True)
 
         # Write result to output file
         out_path = Path(out)
@@ -331,7 +350,7 @@ def reconcile(
         # Propagate intended exit codes (0 or 1) without wrapping
         raise
     except Exception as e:
-        typer.echo(f"❌ Error during reconciliation: {e}", err=True)
+        typer.echo(f"{_mark_error()} Error during reconciliation: {e}", err=True)
         raise typer.Exit(1) from e
 
 
@@ -339,7 +358,9 @@ def _validate_report_formats(formats: str) -> list[str]:
     """Validate and parse report formats."""
     requested_formats = [f.strip().lower() for f in formats.split(",")]
     if not all(f in ["html", "pdf"] for f in requested_formats):
-        typer.echo("❌ Invalid format. Use: html,pdf or html or pdf", err=True)
+        typer.echo(
+            f"{_mark_error()} Invalid format. Use: html,pdf or html or pdf", err=True
+        )
         raise typer.Exit(1)
     return requested_formats
 
@@ -357,7 +378,7 @@ def report(
     """Generate Balance Sheet and Cash Flow reports."""
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
-        typer.echo("❌ DATABASE_URL not found in environment", err=True)
+        typer.echo(f"{_mark_error()} DATABASE_URL not found in environment", err=True)
         raise typer.Exit(2)
 
     try:
@@ -376,15 +397,15 @@ def report(
         if "html" in requested_formats:
             bs_html_path = out_path / f"bs_{period}.html"
             bs_html_path.write_text(bs_html)
-            typer.echo(f"✅ Generated: {bs_html_path}")
+            typer.echo(f"{_mark_success()} Generated: {bs_html_path}")
 
         if "pdf" in requested_formats:
             try:
                 bs_pdf_path = out_path / f"bs_{period}.pdf"
                 write_pdf(bs_html, bs_pdf_path)
-                typer.echo(f"✅ Generated: {bs_pdf_path}")
+                typer.echo(f"{_mark_success()} Generated: {bs_pdf_path}")
             except Exception as e:
-                typer.echo(f"⚠️  PDF generation not available: {e}")
+                typer.echo(f"WARNING:  PDF generation not available: {e}")
                 typer.echo("   (HTML report was generated successfully)")
 
         # Generate Cash Flow
@@ -392,21 +413,21 @@ def report(
         if "html" in requested_formats:
             cf_html_path = out_path / f"cf_{period}.html"
             cf_html_path.write_text(cf_html)
-            typer.echo(f"✅ Generated: {cf_html_path}")
+            typer.echo(f"{_mark_success()} Generated: {cf_html_path}")
 
         if "pdf" in requested_formats:
             try:
                 cf_pdf_path = out_path / f"cf_{period}.pdf"
                 write_pdf(cf_html, cf_pdf_path)
-                typer.echo(f"✅ Generated: {cf_pdf_path}")
+                typer.echo(f"{_mark_success()} Generated: {cf_pdf_path}")
             except Exception as e:
-                typer.echo(f"⚠️  PDF generation not available: {e}")
+                typer.echo(f"WARNING:  PDF generation not available: {e}")
                 typer.echo("   (HTML report was generated successfully)")
 
-        typer.echo(f"🎉 Reports generated for {period} in {out_path}")
+        typer.echo(f"Reports generated for {period} in {out_path}")
 
     except Exception as e:
-        typer.echo(f"❌ Error generating reports: {e}", err=True)
+        typer.echo(f"{_mark_error()} Error generating reports: {e}", err=True)
         raise typer.Exit(1) from e
 
 
@@ -418,16 +439,16 @@ def map_account(
     """Map a Plaid account to a GL account."""
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
-        typer.echo("❌ DATABASE_URL not found in environment", err=True)
+        typer.echo(f"{_mark_error()} DATABASE_URL not found in environment", err=True)
         raise typer.Exit(2)
 
     try:
         engine = create_engine(database_url)
         with engine.begin() as conn:
             link_plaid_to_account(plaid_account_id, gl_code, conn)
-        typer.echo(f"✅ Linked {plaid_account_id} → {gl_code}")
+        typer.echo(f"{_mark_success()} Linked {plaid_account_id} → {gl_code}")
     except Exception as e:
-        typer.echo(f"❌ Mapping failed: {e}", err=True)
+        typer.echo(f"{_mark_error()} Mapping failed: {e}", err=True)
         raise typer.Exit(1) from e
 
 

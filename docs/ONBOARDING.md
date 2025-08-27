@@ -47,7 +47,7 @@ pfetl onboard --sandbox
 ```bash
 # Fetch 90 days of transactions
 pfetl ingest --item-id abc123 --from 2024-01-01 --to 2024-03-31
-# ✅ Ingested 1234 transactions.
+# Ingested 1234 transactions.
 ```
 
 ### 5) Map Accounts for Reconciliation
@@ -61,7 +61,7 @@ pfetl=# \q
 # Map each cash account to GL code (required for Plaid-vs-GL cash variance)
 pfetl map-account --plaid-account-id plaid_123 --gl-code "Assets:Bank:Checking"
 pfetl map-account --plaid-account-id plaid_456 --gl-code "Assets:Bank:Savings"
-# ✅ Linked plaid_123 → Assets:Bank:Checking
+# Linked plaid_123 → Assets:Bank:Checking
 ```
 
 ### 6) Run Reconciliation Gates
@@ -69,8 +69,8 @@ pfetl map-account --plaid-account-id plaid_456 --gl-code "Assets:Bank:Savings"
 ```bash
 # Period-aware reconciliation with Plaid balance comparison
 pfetl reconcile --item-id abc123 --period 2024Q1 --out build/recon.json
-# ✅ Reconciliation passed for 2024Q1
-# 📄 Results written to build/recon.json
+# Reconciliation passed for 2024Q1
+# Results written to build/recon.json
 
 # Note: Plaid Sandbox current balances include history outside your ingest window.
 # For demos/CI, pass curated period balances to avoid drift:
@@ -84,10 +84,10 @@ pfetl reconcile --item-id abc123 --period 2024Q1 --out build/recon.json
 ```bash
 # Deterministic HTML + PDF reports
 pfetl report --item-id abc123 --period 2024Q1 --formats html,pdf --out build/
-# ✅ Generated: build/bs_2024Q1.html
-# ✅ Generated: build/bs_2024Q1.pdf
-# ✅ Generated: build/cf_2024Q1.html
-# ✅ Generated: build/cf_2024Q1.pdf
+# Generated: build/bs_2024Q1.html
+# Generated: build/bs_2024Q1.pdf
+# Generated: build/cf_2024Q1.html
+# Generated: build/cf_2024Q1.pdf
 ```
 
 ## Verification Steps

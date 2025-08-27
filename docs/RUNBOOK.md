@@ -29,7 +29,7 @@ pfetl ingest --item-id "$PLAID_ITEM_ID" --from 2024-08-01 --to 2024-08-31
 
 | Symptom                               | Likely cause                                        | Fix                                                     |
 | ------------------------------------- | --------------------------------------------------- | ------------------------------------------------------- |
-| `❌ PLAID_ACCESS_TOKEN not set`        | missing creds in `.env`                             | run `pfetl onboard --sandbox --write-env`               |
+| `ERROR: PLAID_ACCESS_TOKEN not set`        | missing creds in `.env`                             | run `pfetl onboard --sandbox --write-env`               |
 | `400 Bad Request` from Plaid API      | expired/invalid access token in API calls          | re-onboard to refresh token                             |
 | `CheckViolation` on accounts.type     | schema enforces GL types; loader writes Plaid types | Current implementation uses shim tables to avoid this   |
 | `Unmapped Plaid account type/subtype` | missing mapping (e.g., `credit/credit card`)        | update `etl/coa.yaml` (normalize with underscores)      |

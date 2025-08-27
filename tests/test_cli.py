@@ -162,7 +162,7 @@ def test_ingest_success_exit_zero() -> None:
         )
 
         assert result.exit_code == 0
-        assert "✅" in result.output or "success" in result.output.lower()
+        assert "success" in result.output.lower() or "ingested" in result.output.lower()
 
 
 def test_ingest_database_connection_failure() -> None:

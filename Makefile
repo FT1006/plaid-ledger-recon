@@ -43,11 +43,11 @@ typecheck: type
 
 # Ship/CI gate: strict & reproducible
 ship:
-	@echo "🚢 Running full quality gate..."
+	@echo "Running full quality gate..."
 	ruff format --check .
 	ruff check .
 	mypy . --strict --warn-unused-ignores --no-error-summary
-	@echo "✅ All checks passed - ready to ship!"
+	@echo "All checks passed - ready to ship!"
 
 # CI alias
 ci: ship
@@ -63,7 +63,7 @@ db-up:
 	@until docker compose run --rm postgres pg_isready -h postgres -U pfetl_user -d pfetl; do \
 		sleep 1; \
 	done
-	@echo "✅ Database is ready"
+	@echo "Database is ready"
 
 db-down:
 	docker compose down

@@ -7,7 +7,7 @@
 
 It's designed to feel like **"one-command audit automation"**: simple to onboard, transparent in failure, and reproducible.
 
-## 🚀 Quick Start
+## Quick Start
 
 ```bash
 # 1. Spin up infra (Postgres only)
@@ -46,13 +46,13 @@ pfetl report --item-id abc123 --period 2024Q1 --formats html,pdf --out build/
 
 ---
 
-## 🖥️ CLI Mockups
+## CLI Examples
 
 ### Onboarding
 
 ```
 $ pfetl onboard --sandbox
-✔ Plaid sandbox linked successfully
+Plaid sandbox linked successfully
 ITEM_ID=abc123
 ```
 
@@ -60,15 +60,15 @@ ITEM_ID=abc123
 
 ```
 $ pfetl ingest --item-id abc123 --from 2024-01-01 --to 2024-03-31
-[✓] Pulled 1234 transactions (3 pages, 1 retry)
-[✓] Loaded into Postgres: 1234 entries, 2468 lines
+Pulled 1234 transactions (3 pages, 1 retry)
+Loaded into Postgres: 1234 entries, 2468 lines
 ```
 
 ### Account Mapping
 
 ```
 $ pfetl map-account --plaid-account-id plaid_123 --gl-code "Assets:Bank:Checking"
-✅ Linked plaid_123 → Assets:Bank:Checking
+Linked plaid_123 → Assets:Bank:Checking
 ```
 
 ### Reconcile
@@ -80,7 +80,7 @@ Reconciliation Report: build/recon.json
 Entries checked:   1234
 Unbalanced:        0
 Cash Variance:     0.00
-Result:            PASSED ✅
+Result:            PASSED
 ```
 
 Note: For demos/CI, pass `--balances-json path/to/balances.json` to avoid Plaid point-in-time drift.
@@ -89,16 +89,16 @@ Note: For demos/CI, pass `--balances-json path/to/balances.json` to avoid Plaid 
 
 ```
 $ pfetl report --item-id abc123 --period 2024Q1 --formats html,pdf
-✅ Generated: build/bs_2024Q1.html
-✅ Generated: build/bs_2024Q1.pdf
-✅ Generated: build/cf_2024Q1.html
-✅ Generated: build/cf_2024Q1.pdf
-🎉 Reports generated for 2024Q1 in build/
+Generated: build/bs_2024Q1.html
+Generated: build/bs_2024Q1.pdf
+Generated: build/cf_2024Q1.html
+Generated: build/cf_2024Q1.pdf
+Reports generated for 2024Q1 in build/
 ```
 
 ---
 
-## 📊 Report Preview (HTML)
+## Report Preview (HTML)
 
 **Balance Sheet (Q1 2024)**
 
@@ -152,39 +152,43 @@ Net Operating CF    1,600.00
    pfetl onboard --sandbox
    ```
 
-   👉 Prints an `ITEM_ID` so we can track one institution's data.
+   Prints an `ITEM_ID` so we can track one institution's data.
+
 2. **Ingest 90 days of transactions**
 
    ```bash
    pfetl ingest --item-id abc123 --from 2024-01-01 --to 2024-03-31
    ```
 
-   👉 See logs show multi-page pagination, one retry, and a row count.
+   See logs show multi-page pagination, one retry, and a row count.
+
 3. **Map accounts for reconciliation (required for Plaid-vs-GL cash variance)**
 
    ```bash
    pfetl map-account --plaid-account-id plaid_123 --gl-code "Assets:Bank:Checking"
    ```
 
-   👉 Explicit mapping policy ensures audit-ready account linkage (optional convenience).
+   Explicit mapping policy ensures audit-ready account linkage (optional convenience).
+
 4. **Run reconciliation**
 
    ```bash
    pfetl reconcile --item-id abc123 --period 2024Q1
    ```
 
-   👉 If controls pass: `Result: PASSED ✅`.
-   👉 If balances don't match: exit 1, JSON shows variance.
-   👉 **Note**: Plaid Sandbox balances will likely fail (expected; tolerance ±$0.01).
-   👉 For demos, pass `--balances-json` with period balances to avoid live Plaid drift.
+   - If controls pass: `Result: PASSED`.
+   - If balances don't match: exit 1, JSON shows variance.
+   - **Note**: Plaid Sandbox balances will likely fail (expected; tolerance ±$0.01).
+   - For demos, pass `--balances-json` with period balances to avoid live Plaid drift.
+
 5. **Generate reports**
 
    ```bash
    pfetl report --item-id abc123 --period 2024Q1 --formats html,pdf
    ```
 
-   👉 HTML report hash is stable → deterministic output.
-   👉 Open `bs_2024Q1.html` in a browser to see Assets = Liabilities + Equity.
+   - HTML report hash is stable → deterministic output.
+   - Open `bs_2024Q1.html` in a browser to see Assets = Liabilities + Equity.
 
 The whole flow takes ~2 minutes and shows **audit controls, reconciliation, and reporting** in action.
 
@@ -213,7 +217,7 @@ The whole flow takes ~2 minutes and shows **audit controls, reconciliation, and 
 
 ---
 
-## 📖 Documentation
+## Documentation
 
 * `docs/ONBOARDING.md` — install & run
 * `docs/ARCHITECTURE.md` — components & flow
