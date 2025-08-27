@@ -29,10 +29,11 @@ pfetl onboard --sandbox
 # 4. Ingest 90 days of transactions
 pfetl ingest --item-id abc123 --from 2024-01-01 --to 2024-03-31
 
-# 5. Map accounts explicitly (required for reconciliation)
+# 5. Map accounts explicitly (optional convenience for reconciliation)
 pfetl map-account --plaid-account-id plaid_123 --gl-code "Assets:Bank:Checking"
 
 # 6. Run reconciliation gates (exit non-zero if controls fail)
+# NOTE: Plaid Sandbox balances will likely fail cash variance (expected; tolerance ±$0.01)
 # For demos/CI, you can override Plaid balances with a curated JSON file:
 #   {"<PLAID_ACCOUNT_ID>": <period_balance>, ...}
 # Example: --balances-json build/demo_balances.json
@@ -165,7 +166,7 @@ Net Operating CF    1,600.00
    pfetl map-account --plaid-account-id plaid_123 --gl-code "Assets:Bank:Checking"
    ```
 
-   👉 Explicit mapping policy ensures audit-ready account linkage.
+   👉 Explicit mapping policy ensures audit-ready account linkage (optional convenience).
 
 4. **Run reconciliation**
 
@@ -174,8 +175,9 @@ Net Operating CF    1,600.00
    ```
 
    👉 If controls pass: `Result: PASSED ✅`.
-👉 If balances don't match: exit 1, JSON shows variance.
-👉 For demos, pass `--balances-json` with period balances to avoid live Plaid drift.
+   👉 If balances don't match: exit 1, JSON shows variance.
+   👉 **Note**: Plaid Sandbox balances will likely fail (expected; tolerance ±$0.01).
+   👉 For demos, pass `--balances-json` with period balances to avoid live Plaid drift.
 
 5. **Generate reports**
 

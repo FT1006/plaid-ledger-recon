@@ -1,6 +1,6 @@
 # ADR-001-LIVING: Canonical GL, Mapping Policy, Lineage, and Period Gates
 
-Version: 1.3
+Version: 1.1.0
 
 Status: Accepted (Living)
 
@@ -70,3 +70,4 @@ Demo/CI Override:
 ## Change Log
 
 - 1.0: Initial living ADR capturing FK move to `journal_lines.account_id`, Plaid mapping policy, lineage gate, period filtering, reconcile etl_event.
+- 1.1.0: Confirmed implementation of reconcile ETL events persisted, period-filtering in all checks, canonical mapping policy via plaid_accounts + account_links tables with ingest_accounts marked as legacy shim.
