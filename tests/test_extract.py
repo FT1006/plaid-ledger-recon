@@ -13,6 +13,11 @@ from psycopg import connect
 
 from etl.extract import canonicalize_json, land_raw, sync_transactions
 
+pytestmark = pytest.mark.skipif(
+    not os.getenv("DATABASE_URL"),
+    reason="Requires Postgres; set DATABASE_URL to run.",
+)
+
 
 class TestExtract:
     """Test suite for transaction extraction functionality."""

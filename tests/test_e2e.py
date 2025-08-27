@@ -14,6 +14,16 @@ import pytest
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
+if not (
+    os.getenv("DATABASE_URL")
+    or shutil.which("docker")
+    or shutil.which("docker-compose")
+):
+    pytest.skip(
+        "E2E requires Postgres via DATABASE_URL or Docker; skipping locally.",
+        allow_module_level=True,
+    )
+
 if TYPE_CHECKING:
     from collections.abc import Generator
 

@@ -8,6 +8,11 @@ from sqlalchemy import create_engine, text
 
 from etl.load import load_journal_entries
 
+pytestmark = pytest.mark.skipif(
+    not os.getenv("DATABASE_URL"),
+    reason="Requires Postgres; set DATABASE_URL to run.",
+)
+
 
 @pytest.mark.integration
 def test_postgres_loader_resolves_account_fk() -> None:

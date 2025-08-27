@@ -22,6 +22,7 @@ from etl.load import (
     load_accounts,
     load_journal_entries,
 )
+from tests.conftest import seed_account
 
 
 @pytest.fixture
@@ -38,41 +39,45 @@ def db_engine() -> Engine:
 
         conn.execute(
             text("""
-            CREATE TABLE ingest_accounts (
-                plaid_account_id TEXT PRIMARY KEY,
+            CREATE TABLE accounts (
+                id TEXT PRIMARY KEY,
+                code TEXT UNIQUE NOT NULL,
                 name TEXT NOT NULL,
                 type TEXT NOT NULL,
-                subtype TEXT NOT NULL,
-                currency TEXT NOT NULL
+                is_cash BOOLEAN NOT NULL DEFAULT 0
             )
-        """),
+        """)
         )
+
         conn.execute(
             text("""
             CREATE TABLE journal_entries (
                 id INTEGER PRIMARY KEY,
+                item_id TEXT,
                 txn_id TEXT UNIQUE NOT NULL,
                 txn_date DATE NOT NULL,
-                description TEXT,
+                description TEXT NOT NULL,
                 currency TEXT NOT NULL,
                 source_hash TEXT NOT NULL,
                 transform_version INTEGER NOT NULL
             )
-        """),
+        """)
         )
-        # NOTE: Using MVP schema with text account names (no FK)
+
         conn.execute(
             text("""
             CREATE TABLE journal_lines (
                 id INTEGER PRIMARY KEY,
                 entry_id INTEGER NOT NULL,
-                account TEXT NOT NULL,
+                account_id TEXT NOT NULL,
                 side TEXT NOT NULL,
                 amount DECIMAL(15,2) NOT NULL,
-                FOREIGN KEY (entry_id) REFERENCES journal_entries(id) ON DELETE CASCADE
+                FOREIGN KEY (entry_id) REFERENCES journal_entries(id) ON DELETE CASCADE,
+                FOREIGN KEY (account_id) REFERENCES accounts(id)
             )
-        """),
+        """)
         )
+
         conn.execute(
             text("""
             CREATE TABLE etl_events (
@@ -84,8 +89,21 @@ def db_engine() -> Engine:
                 finished_at TEXT,
                 success INTEGER NOT NULL
             )
-        """),
+        """)
         )
+
+        conn.execute(
+            text("""
+            CREATE TABLE ingest_accounts (
+                plaid_account_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                type TEXT NOT NULL,
+                subtype TEXT NOT NULL,
+                currency TEXT NOT NULL
+            )
+        """)
+        )
+
     return engine
 
 
@@ -162,6 +180,11 @@ def test_idempotent_reingest_no_duplicates(db_engine: Engine) -> None:
     ]
 
     with db_engine.begin() as conn:
+        # Seed only the accounts this test needs
+        seed_account(conn, "Assets:Bank:Checking", "asset", 1)
+        seed_account(conn, "Expenses:Dining", "expense", 0)
+        seed_account(conn, "Income:Salary", "income", 0)
+
         # First load
         load_accounts(accounts, conn)
         load_journal_entries(entries, conn)
@@ -318,6 +341,8 @@ def test_bulk_load_performance_with_many_entries(db_engine: Engine) -> None:
     ]
 
     with db_engine.begin() as conn:
+        seed_account(conn, "Expenses:Test", type_="expense")
+        seed_account(conn, "Assets:Bank", type_="asset", is_cash=1)
         load_accounts(accounts, conn)
         load_journal_entries(entries, conn)
         count = get_entries_count(conn)
@@ -374,6 +399,9 @@ def test_journal_lines_linked_to_entries(db_engine: Engine) -> None:
     }
 
     with db_engine.begin() as conn:
+        seed_account(conn, "Expenses:Office", type_="expense")
+        seed_account(conn, "Expenses:Tax", type_="expense")
+        seed_account(conn, "Assets:Bank", type_="asset", is_cash=1)
         load_accounts(accounts, conn)
         load_journal_entries([entry], conn)
 
@@ -392,11 +420,12 @@ def test_journal_lines_linked_to_entries(db_engine: Engine) -> None:
         ).scalar()
         assert lines_result == 3
 
-        # Verify line details (MVP schema uses text account names)
+        # Verify line details (FK schema joins to get account code)
         lines = conn.execute(
             text("""
-                SELECT l.account, l.side, l.amount
+                SELECT a.code, l.side, l.amount
                 FROM journal_lines l
+                JOIN accounts a ON l.account_id = a.id
                 WHERE l.entry_id = :eid
                 ORDER BY l.id
             """),
@@ -477,6 +506,9 @@ def test_transform_version_tracked_for_lineage(db_engine: Engine) -> None:
     ]
 
     with db_engine.begin() as conn:
+        seed_account(conn, "Expenses:V1", type_="expense")
+        seed_account(conn, "Expenses:V2", type_="expense")
+        seed_account(conn, "Assets:Bank", type_="asset", is_cash=1)
         load_accounts(accounts, conn)
         load_journal_entries(entries_v1, conn)
         load_journal_entries(entries_v2, conn)
@@ -576,6 +608,10 @@ def test_currency_preserved_in_journal_entries(db_engine: Engine) -> None:
     ]
 
     with db_engine.begin() as conn:
+        seed_account(conn, "Expenses:USD", type_="expense")
+        seed_account(conn, "Expenses:CAD", type_="expense")
+        seed_account(conn, "Assets:USD", type_="asset", is_cash=1)
+        seed_account(conn, "Assets:CAD", type_="asset", is_cash=1)
         load_accounts(accounts, conn)
         load_journal_entries(entries, conn)
 
@@ -634,6 +670,8 @@ def test_etl_events_rowcounts_recorded(db_engine: Engine) -> None:
     ]
 
     with db_engine.begin() as conn:
+        seed_account(conn, "Expenses:Test", type_="expense")
+        seed_account(conn, "Assets:Bank", type_="asset", is_cash=1)
         load_accounts(accounts, conn)
         load_journal_entries(entries, conn)
 

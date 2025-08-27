@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
+from etl.reports.utils import weasyprint_available
 from tests.utils.hash import hash_html
 
 
@@ -185,6 +186,7 @@ def test_cash_flow_html_matches_golden_snapshot(db_engine: Engine) -> None:
     )
 
 
+@pytest.mark.skipif(not weasyprint_available(), reason="WeasyPrint unavailable")
 def test_pdf_is_emitted_but_not_snapshotted(db_engine: Engine) -> None:
     """PDF must be generated and have non-zero size.
 
