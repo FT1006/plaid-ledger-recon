@@ -1,0 +1,1 @@
+"""Reports package for deterministic HTML/PDF generation."""
