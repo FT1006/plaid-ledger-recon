@@ -105,7 +105,7 @@ def compose_services() -> Generator[None, None, None]:
 
 
 @pytest.mark.e2e
-def test_e2e_full_ingest_pipeline(compose_services: Any) -> None:  # noqa: ARG001
+def test_e2e_full_ingest_pipeline(compose_services: Any) -> None:  # noqa: ARG001, PLR0915
     """Test complete ETL pipeline from Plaid to database.
 
     This test verifies:
@@ -212,6 +212,52 @@ def test_e2e_full_ingest_pipeline(compose_services: Any) -> None:  # noqa: ARG00
         assert event_count is not None and event_count >= 1, (
             "No ETL load event recorded"
         )
+
+        # Verify plaid_accounts table is populated (new canonical table)
+        plaid_accounts_count = conn.execute(
+            text("SELECT COUNT(*) FROM plaid_accounts")
+        ).scalar()
+        assert plaid_accounts_count is not None and plaid_accounts_count > 0, (
+            "No Plaid accounts populated in canonical plaid_accounts table"
+        )
+
+        # Test explicit account mapping command (optional smoke test)
+        plaid_id = conn.execute(
+            text("""
+            SELECT plaid_account_id
+            FROM plaid_accounts
+            WHERE type='depository' AND subtype='checking'
+            LIMIT 1
+        """)
+        ).scalar()
+
+        if plaid_id:
+            # Run map-account CLI command
+            map_res = subprocess.run(  # noqa: S603
+                [
+                    sys.executable,
+                    "cli.py",
+                    "map-account",
+                    "--plaid-account-id",
+                    plaid_id,
+                    "--gl-code",
+                    "Assets:Bank:Checking",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            assert map_res.returncode == 0, f"map-account failed: {map_res.stderr}"
+
+            # Verify the link was created
+            with engine.connect() as verify_conn:
+                link_cnt = verify_conn.execute(
+                    text("""
+                    SELECT COUNT(*) FROM account_links WHERE plaid_account_id = :pid
+                """),
+                    {"pid": plaid_id},
+                ).scalar()
+                assert link_cnt == 1, "Account link not created"
 
         # Verify FK integrity: all journal_lines have valid account_id (Task 9)
         # Only check if account_id column exists (post-migration)
@@ -336,7 +382,8 @@ def test_e2e_credit_card_transactions(compose_services: Any) -> None:  # noqa: A
                     SELECT COUNT(DISTINCT e.id)
                     FROM journal_entries e
                     JOIN journal_lines l ON e.id = l.entry_id
-                    WHERE l.account LIKE '%Liabilities:CreditCard%'
+                    JOIN accounts a ON l.account_id = a.id
+                    WHERE a.code LIKE 'Liabilities:CreditCard%'
                 """)
             ).scalar()
             assert credit_entries is not None and credit_entries >= 0, (
