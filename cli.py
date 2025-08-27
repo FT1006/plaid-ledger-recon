@@ -307,9 +307,13 @@ def report(
             typer.echo(f"✅ Generated: {bs_html_path}")
 
         if "pdf" in requested_formats:
-            bs_pdf_path = out_path / f"bs_{period}.pdf"
-            write_pdf(bs_html, bs_pdf_path)
-            typer.echo(f"✅ Generated: {bs_pdf_path}")
+            try:
+                bs_pdf_path = out_path / f"bs_{period}.pdf"
+                write_pdf(bs_html, bs_pdf_path)
+                typer.echo(f"✅ Generated: {bs_pdf_path}")
+            except Exception as e:
+                typer.echo(f"⚠️  PDF generation not available: {e}")
+                typer.echo("   (HTML report was generated successfully)")
 
         # Generate Cash Flow
         cf_html = render_cash_flow(period, engine)
@@ -319,9 +323,13 @@ def report(
             typer.echo(f"✅ Generated: {cf_html_path}")
 
         if "pdf" in requested_formats:
-            cf_pdf_path = out_path / f"cf_{period}.pdf"
-            write_pdf(cf_html, cf_pdf_path)
-            typer.echo(f"✅ Generated: {cf_pdf_path}")
+            try:
+                cf_pdf_path = out_path / f"cf_{period}.pdf"
+                write_pdf(cf_html, cf_pdf_path)
+                typer.echo(f"✅ Generated: {cf_pdf_path}")
+            except Exception as e:
+                typer.echo(f"⚠️  PDF generation not available: {e}")
+                typer.echo("   (HTML report was generated successfully)")
 
         typer.echo(f"🎉 Reports generated for {period} in {out_path}")
 
