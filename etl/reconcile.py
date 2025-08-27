@@ -97,7 +97,7 @@ def check_cash_variance(
         JOIN accounts a ON jl.account_id = a.id
         JOIN account_links al ON a.id = al.account_id
         JOIN journal_entries je ON jl.entry_id = je.id
-        WHERE (a.is_cash = 1 OR a.is_cash = true)
+        WHERE a.is_cash = true
         AND je.txn_date >= :from_date AND je.txn_date <= :to_date
         GROUP BY al.plaid_account_id
     """)
