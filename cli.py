@@ -3,14 +3,14 @@
 
 import json
 import os
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Annotated
 
 import psycopg
 import typer
 from dotenv import load_dotenv
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 
 from etl.connectors.plaid_client import create_plaid_client_from_env
 from etl.extract import fetch_accounts, sync_transactions
@@ -237,6 +237,7 @@ def reconcile(
         raise typer.Exit(1)
 
     try:
+        started_at = datetime.now(UTC).isoformat()
         # Fetch current Plaid balances for comparison
         accounts = fetch_accounts(access_token)
         plaid_balances = {
@@ -247,6 +248,39 @@ def reconcile(
         engine = create_engine(database_url)
         with engine.begin() as conn:
             result = run_reconciliation(conn, period, plaid_balances)
+
+            # Record ETL event for reconciliation (observability/audit trail)
+            try:
+                finished_at = datetime.now(UTC).isoformat()
+                row_counts = json.dumps({
+                    "period": period,
+                    "checks": result.get("checks", {}),
+                })
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO etl_events (
+                            event_type, item_id, row_counts,
+                            started_at, finished_at, success
+                        )
+                        VALUES (
+                            :event_type, :item_id, :row_counts,
+                            :started_at, :finished_at, :success
+                        )
+                        """
+                    ),
+                    {
+                        "event_type": "reconcile",
+                        "item_id": item_id,
+                        "row_counts": row_counts,
+                        "started_at": started_at,
+                        "finished_at": finished_at,
+                        "success": bool(result.get("success")),
+                    },
+                )
+            except Exception as e:
+                # Do not fail the reconcile command if event logging fails
+                typer.echo(f"⚠️  ETL event logging failed: {e}", err=True)
 
         # Write result to output file
         out_path = Path(out)

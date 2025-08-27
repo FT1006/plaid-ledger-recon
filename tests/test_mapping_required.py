@@ -521,16 +521,21 @@ def test_multiple_missing_accounts_first_error_wins() -> None:
         assert "PFETL_AUTO_CREATE_ACCOUNTS" in error_msg
 
 
-@pytest.mark.parametrize("source_hash,transform_version,expected_error", [
-    (None, 1, "source_hash is required"),
-    ("", 1, "source_hash cannot be empty"),
-    ("   ", 1, "source_hash cannot be empty"),
-    ("hash123", None, "transform_version is required"),
-    ("hash123", 0, "transform_version must be positive"),
-    ("hash123", -1, "transform_version must be positive"),
-])
-def test_missing_lineage_fails_load(source_hash: str | None, transform_version: int | None, expected_error: str) -> None:
-    """Test that entries without valid source_hash or transform_version fail validation."""
+@pytest.mark.parametrize(
+    "source_hash,transform_version,expected_error",
+    [
+        (None, 1, "source_hash is required"),
+        ("", 1, "source_hash cannot be empty"),
+        ("   ", 1, "source_hash cannot be empty"),
+        ("hash123", None, "transform_version is required"),
+        ("hash123", 0, "transform_version must be positive"),
+        ("hash123", -1, "transform_version must be positive"),
+    ],
+)
+def test_missing_lineage_fails_load(
+    source_hash: str | None, transform_version: int | None, expected_error: str
+) -> None:
+    """Test entries without valid source_hash or transform_version fail validation."""
     engine = create_engine("sqlite:///:memory:")
 
     with engine.begin() as conn:
