@@ -1,0 +1,98 @@
+{% extends "base.html.j2" %}
+
+{% block title %}Balance Sheet - {{ period }}{% endblock %}
+
+{% block header %}Balance Sheet{% endblock %}
+
+{% block styles %}
+.balance-sheet-section {
+    margin-bottom: 30px;
+}
+.subsection {
+    margin-left: 20px;
+    margin-bottom: 15px;
+}
+{% endblock %}
+
+{% block content %}
+<div class="balance-sheet-section">
+    <div class="section-header">ASSETS</div>
+    <table>
+        <thead>
+            <tr>
+                <th>Account</th>
+                <th class="amount">Amount</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for account in assets %}
+            <tr>
+                <td>{{ account.name }}</td>
+                <td class="amount">${{ account.balance }}</td>
+            </tr>
+            {% endfor %}
+            <tr class="total">
+                <td><strong>Total Assets</strong></td>
+                <td class="amount"><strong>${{ total_assets }}</strong></td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+<div class="balance-sheet-section">
+    <div class="section-header">LIABILITIES</div>
+    <table>
+        <thead>
+            <tr>
+                <th>Account</th>
+                <th class="amount">Amount</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for account in liabilities %}
+            <tr>
+                <td>{{ account.name }}</td>
+                <td class="amount">${{ account.balance }}</td>
+            </tr>
+            {% endfor %}
+            <tr class="total">
+                <td><strong>Total Liabilities</strong></td>
+                <td class="amount"><strong>${{ total_liabilities }}</strong></td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+<div class="balance-sheet-section">
+    <div class="section-header">EQUITY</div>
+    <table>
+        <thead>
+            <tr>
+                <th>Account</th>
+                <th class="amount">Amount</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for account in equity %}
+            <tr>
+                <td>{{ account.name }}</td>
+                <td class="amount">${{ account.balance }}</td>
+            </tr>
+            {% endfor %}
+            <tr class="total">
+                <td><strong>Total Equity</strong></td>
+                <td class="amount"><strong>${{ total_equity }}</strong></td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+<div class="balance-sheet-section">
+    <table>
+        <tr class="total">
+            <td><strong>Total Liabilities and Equity</strong></td>
+            <td class="amount"><strong>${{ total_liabilities_equity }}</strong></td>
+        </tr>
+    </table>
+</div>
+{% endblock %}

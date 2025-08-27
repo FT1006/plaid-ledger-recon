@@ -1,0 +1,91 @@
+{% extends "base.html.j2" %}
+
+{% block title %}Cash Flow Statement - {{ period }}{% endblock %}
+
+{% block header %}Cash Flow Statement{% endblock %}
+
+{% block styles %}
+.cash-flow-section {
+    margin-bottom: 30px;
+}
+.cash-flow-item {
+    margin-left: 20px;
+}
+.net-cash-flow {
+    font-size: 1.1em;
+    background-color: #f9f9f9;
+}
+{% endblock %}
+
+{% block content %}
+<div class="cash-flow-section">
+    <div class="section-header">CASH FLOWS FROM OPERATING ACTIVITIES</div>
+    <table>
+        <tbody>
+            {% for item in operating_activities %}
+            <tr class="cash-flow-item">
+                <td>{{ item.description }}</td>
+                <td class="amount">${{ item.amount }}</td>
+            </tr>
+            {% endfor %}
+            <tr class="total">
+                <td><strong>Net Cash from Operating Activities</strong></td>
+                <td class="amount"><strong>${{ net_operating }}</strong></td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+<div class="cash-flow-section">
+    <div class="section-header">CASH FLOWS FROM INVESTING ACTIVITIES</div>
+    <table>
+        <tbody>
+            {% for item in investing_activities %}
+            <tr class="cash-flow-item">
+                <td>{{ item.description }}</td>
+                <td class="amount">${{ item.amount }}</td>
+            </tr>
+            {% endfor %}
+            <tr class="total">
+                <td><strong>Net Cash from Investing Activities</strong></td>
+                <td class="amount"><strong>${{ net_investing }}</strong></td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+<div class="cash-flow-section">
+    <div class="section-header">CASH FLOWS FROM FINANCING ACTIVITIES</div>
+    <table>
+        <tbody>
+            {% for item in financing_activities %}
+            <tr class="cash-flow-item">
+                <td>{{ item.description }}</td>
+                <td class="amount">${{ item.amount }}</td>
+            </tr>
+            {% endfor %}
+            <tr class="total">
+                <td><strong>Net Cash from Financing Activities</strong></td>
+                <td class="amount"><strong>${{ net_financing }}</strong></td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+<div class="cash-flow-section">
+    <table>
+        <tr class="net-cash-flow total">
+            <td><strong>Net Increase (Decrease) in Cash</strong></td>
+            <td class="amount"><strong>${{ net_cash_change }}</strong></td>
+        </tr>
+        <tr>
+            <td>Cash at Beginning of Period</td>
+            <td class="amount">${{ cash_beginning }}</td>
+        </tr>
+        <tr class="total">
+            <td><strong>Cash at End of Period</strong></td>
+            <td class="amount"><strong>${{ cash_ending }}</strong></td>
+        </tr>
+    </table>
+</div>
+{% endblock %}
