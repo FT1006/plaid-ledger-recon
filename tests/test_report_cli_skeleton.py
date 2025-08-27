@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path  # noqa: TC003
 
-import pytest
+import pytest  # noqa: TC002
 from cli import app
 from sqlalchemy import create_engine, text
 from typer.testing import CliRunner
@@ -110,16 +110,16 @@ def _seed_minimal_reporting_schema(engine_url: str) -> None:
         )
 
 
-@pytest.mark.skip(reason="report CLI not yet implemented — enable after implementation")
 def test_report_cli_emits_deterministic_html(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Expected: report CLI writes 2 deterministic HTML files for the period."""
-    # Create in-memory SQLite DB and seed data
-    db_url = "sqlite:///:memory:"
+    # Create temporary SQLite DB file and seed data
+    db_file = tmp_path / "test.db"
+    db_url = f"sqlite:///{db_file}"
     _seed_minimal_reporting_schema(db_url)
 
-    # Point CLI to our in-memory DB
+    # Point CLI to our temp DB
     monkeypatch.setenv("DATABASE_URL", db_url)
 
     out_dir = tmp_path / "build"
