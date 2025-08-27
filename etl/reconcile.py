@@ -36,7 +36,7 @@ def parse_period(period: str) -> tuple[str, str]:
     raise ValueError(msg)
 
 
-def check_entry_balance(conn: Connection, _period: str) -> dict[str, Any]:
+def check_entry_balance(conn: Connection, period: str) -> dict[str, Any]:
     """Check that all journal entries have balanced debits and credits.
 
     Args:
@@ -46,21 +46,24 @@ def check_entry_balance(conn: Connection, _period: str) -> dict[str, Any]:
     Returns:
         Check result with passed status and unbalanced entries list
     """
-    # TODO(M4): https://github.com/user/repo/issues/M4 Filter by period using
-    # journal_entries.txn_date once from/to params added
-    # Query for unbalanced entries (where debits != credits)
+    from_date, to_date = parse_period(period)
+
+    # Query for unbalanced entries (where debits != credits) within period
     query = text("""
         SELECT je.txn_id,
                SUM(CASE WHEN jl.side = 'debit' THEN jl.amount ELSE 0 END) as debits,
                SUM(CASE WHEN jl.side = 'credit' THEN jl.amount ELSE 0 END) as credits
         FROM journal_entries je
         JOIN journal_lines jl ON je.id = jl.entry_id
+        WHERE je.txn_date >= :from_date AND je.txn_date <= :to_date
         GROUP BY je.id, je.txn_id
         HAVING SUM(CASE WHEN jl.side = 'debit' THEN jl.amount ELSE 0 END) !=
                SUM(CASE WHEN jl.side = 'credit' THEN jl.amount ELSE 0 END)
     """)
 
-    unbalanced = conn.execute(query).fetchall()
+    unbalanced = conn.execute(
+        query, {"from_date": from_date, "to_date": to_date}
+    ).fetchall()
 
     return {
         "passed": len(unbalanced) == 0,
@@ -69,7 +72,7 @@ def check_entry_balance(conn: Connection, _period: str) -> dict[str, Any]:
 
 
 def check_cash_variance(
-    conn: Connection, _period: str, plaid_balances: dict[str, float]
+    conn: Connection, period: str, plaid_balances: dict[str, float]
 ) -> dict[str, Any]:
     """Check variance between GL cash accounts and Plaid balances.
 
@@ -81,9 +84,9 @@ def check_cash_variance(
     Returns:
         Check result with passed status, variance, and tolerance
     """
-    # TODO(M4): https://github.com/user/repo/issues/M4 Filter by period using
-    # journal_entries.txn_date once from/to params added
-    # Calculate total GL cash balance (sum of all cash account movements)
+    from_date, to_date = parse_period(period)
+
+    # Calculate total GL cash balance (sum of all cash account movements) within period
     query = text("""
         SELECT al.plaid_account_id,
                SUM(CASE
@@ -93,12 +96,17 @@ def check_cash_variance(
         FROM journal_lines jl
         JOIN accounts a ON jl.account_id = a.id
         JOIN account_links al ON a.id = al.account_id
-        WHERE a.is_cash = 1 OR a.is_cash = true
+        JOIN journal_entries je ON jl.entry_id = je.id
+        WHERE (a.is_cash = 1 OR a.is_cash = true)
+        AND je.txn_date >= :from_date AND je.txn_date <= :to_date
         GROUP BY al.plaid_account_id
     """)
 
     gl_balances = {
-        row[0]: Decimal(str(row[1])) for row in conn.execute(query).fetchall()
+        row[0]: Decimal(str(row[1]))
+        for row in conn.execute(
+            query, {"from_date": from_date, "to_date": to_date}
+        ).fetchall()
     }
 
     # Calculate total variance using absolute values and Decimal precision
@@ -125,7 +133,7 @@ def check_cash_variance(
     }
 
 
-def check_lineage_presence(conn: Connection, _period: str) -> dict[str, Any]:
+def check_lineage_presence(conn: Connection, period: str) -> dict[str, Any]:
     """Check that all journal entries have source_hash and transform_version.
 
     Args:
@@ -135,18 +143,21 @@ def check_lineage_presence(conn: Connection, _period: str) -> dict[str, Any]:
     Returns:
         Check result with passed status and count of missing lineage
     """
-    # TODO(M4): https://github.com/user/repo/issues/M4 Filter by period using
-    # journal_entries.txn_date once from/to params added
+    from_date, to_date = parse_period(period)
+
     query = text("""
         SELECT COUNT(*)
         FROM journal_entries
-        WHERE source_hash IS NULL
+        WHERE (source_hash IS NULL
            OR transform_version IS NULL
            OR source_hash = ''
-           OR transform_version <= 0
+           OR transform_version <= 0)
+        AND txn_date >= :from_date AND txn_date <= :to_date
     """)
 
-    missing_count = conn.execute(query).scalar() or 0
+    missing_count = (
+        conn.execute(query, {"from_date": from_date, "to_date": to_date}).scalar() or 0
+    )
 
     return {"passed": missing_count == 0, "missing_lineage": missing_count}
 
