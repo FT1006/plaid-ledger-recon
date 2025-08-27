@@ -16,6 +16,7 @@ from etl.connectors.plaid_client import create_plaid_client_from_env
 from etl.extract import fetch_accounts, sync_transactions
 from etl.load import load_accounts, load_journal_entries
 from etl.reconcile import run_reconciliation
+from etl.reports.render import render_balance_sheet, render_cash_flow, write_pdf
 from etl.transform import map_plaid_to_journal
 
 app = typer.Typer(
@@ -245,6 +246,15 @@ def reconcile(
         raise typer.Exit(1) from e
 
 
+def _validate_report_formats(formats: str) -> list[str]:
+    """Validate and parse report formats."""
+    requested_formats = [f.strip().lower() for f in formats.split(",")]
+    if not all(f in ["html", "pdf"] for f in requested_formats):
+        typer.echo("❌ Invalid format. Use: html,pdf or html or pdf", err=True)
+        raise typer.Exit(1)
+    return requested_formats
+
+
 @app.command("report")
 def report(
     item_id: Annotated[str, typer.Option("--item-id", help="Plaid item ID")],
@@ -256,8 +266,51 @@ def report(
     out: Annotated[str, typer.Option("--out", help="Output directory")] = "./build",
 ) -> None:
     """Generate Balance Sheet and Cash Flow reports."""
-    typer.echo("🚧 report: Not yet implemented")
-    raise typer.Exit(1)
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        typer.echo("❌ DATABASE_URL not found in environment", err=True)
+        raise typer.Exit(2)
+
+    try:
+        # Parse requested formats
+        requested_formats = _validate_report_formats(formats)
+
+        # Create output directory
+        out_path = Path(out)
+        out_path.mkdir(parents=True, exist_ok=True)
+
+        # Connect to database and generate reports
+        engine = create_engine(database_url)
+
+        # Generate Balance Sheet
+        bs_html = render_balance_sheet(period, engine)
+        if "html" in requested_formats:
+            bs_html_path = out_path / f"balance_sheet_{period.lower()}.html"
+            bs_html_path.write_text(bs_html)
+            typer.echo(f"✅ Generated: {bs_html_path}")
+
+        if "pdf" in requested_formats:
+            bs_pdf_path = out_path / f"balance_sheet_{period.lower()}.pdf"
+            write_pdf(bs_html, bs_pdf_path)
+            typer.echo(f"✅ Generated: {bs_pdf_path}")
+
+        # Generate Cash Flow
+        cf_html = render_cash_flow(period, engine)
+        if "html" in requested_formats:
+            cf_html_path = out_path / f"cash_flow_{period.lower()}.html"
+            cf_html_path.write_text(cf_html)
+            typer.echo(f"✅ Generated: {cf_html_path}")
+
+        if "pdf" in requested_formats:
+            cf_pdf_path = out_path / f"cash_flow_{period.lower()}.pdf"
+            write_pdf(cf_html, cf_pdf_path)
+            typer.echo(f"✅ Generated: {cf_pdf_path}")
+
+        typer.echo(f"🎉 Reports generated for {period} in {out_path}")
+
+    except Exception as e:
+        typer.echo(f"❌ Error generating reports: {e}", err=True)
+        raise typer.Exit(1) from e
 
 
 if __name__ == "__main__":
