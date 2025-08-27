@@ -71,3 +71,11 @@ Demo/CI Override:
 
 - 1.0: Initial living ADR capturing FK move to `journal_lines.account_id`, Plaid mapping policy, lineage gate, period filtering, reconcile etl_event.
 - 1.1.0: Confirmed implementation of reconcile ETL events persisted, period-filtering in all checks, canonical mapping policy via plaid_accounts + account_links tables with ingest_accounts marked as legacy shim.
+
+## Amendment v1.1 — Demo/CI Balances Override
+
+- To support reproducible demos and CI without Plaid credentials,
+  the CLI now accepts `--balances-json <file>` on `pfetl reconcile`.
+- When provided, Plaid balances API is bypassed, and the override JSON
+  is treated as the authoritative source.
+- Production deployments must continue to use live Plaid balances.
