@@ -28,7 +28,7 @@ DATABASE_URL=postgresql://pfetl_user:pfetl_password@localhost:5432/pfetl
 
 ```bash
 # Start Postgres
-make up
+make db-up
 
 # Initialize database schema
 pfetl init-db
@@ -58,7 +58,7 @@ make db-shell
 pfetl=# SELECT plaid_account_id, name, type FROM plaid_accounts;
 pfetl=# \q
 
-# Map each cash account to GL code
+# Map each cash account to GL code (required for Plaid-vs-GL cash variance)
 pfetl map-account --plaid-account-id plaid_123 --gl-code "Assets:Bank:Checking"
 pfetl map-account --plaid-account-id plaid_456 --gl-code "Assets:Bank:Savings"
 # ✅ Linked plaid_123 → Assets:Bank:Checking
@@ -71,6 +71,12 @@ pfetl map-account --plaid-account-id plaid_456 --gl-code "Assets:Bank:Savings"
 pfetl reconcile --item-id abc123 --period 2024Q1 --out build/recon.json
 # ✅ Reconciliation passed for 2024Q1
 # 📄 Results written to build/recon.json
+
+# Note: Plaid Sandbox current balances include history outside your ingest window.
+# For demos/CI, pass curated period balances to avoid drift:
+# pfetl reconcile --item-id abc123 --period 2024Q1 --out build/recon.json \
+#   --balances-json build/balances.json
+# --balances-json is documented in ADR-001-LIVING and README; production default remains live Plaid balances.
 ```
 
 ### 7) Generate Reports
@@ -92,6 +98,7 @@ make db-shell
 pfetl=# SELECT COUNT(*) FROM journal_entries;
 pfetl=# SELECT COUNT(*) FROM journal_lines;
 pfetl=# SELECT * FROM etl_events ORDER BY started_at DESC LIMIT 5;
+# Reconcile also records an event_type='reconcile' with period and success.
 ```
 
 ### Account Mapping Status
@@ -107,7 +114,7 @@ LEFT JOIN accounts a ON al.account_id = a.id;
 
 ### Reconciliation Results
 ```bash
-cat build/recon.json | jq '.success, .cash_variance_total'
+cat build/recon.json | jq '.success, .checks.cash_variance.variance'
 ```
 
 ## Expected Outcomes
@@ -115,6 +122,6 @@ cat build/recon.json | jq '.success, .cash_variance_total'
 * **Idempotency**: Re-running ingest for same date window creates no duplicates
 * **Balance Integrity**: All journal entries balance (∑debits = ∑credits)
 * **FK Enforcement**: journal_lines.account_id → accounts.id foreign keys enforced
-* **Audit Trail**: ETL events logged with row counts and timestamps
+* **Audit Trail**: ETL events logged with row counts and timestamps; reconcile adds a `reconcile` event with period and success
 * **Deterministic Output**: Same input data produces identical report hashes
 * **Reconciliation Gates**: Cash variance ≤ 0.01 vs Plaid balances, exit non-zero on failure
