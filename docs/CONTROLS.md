@@ -11,6 +11,8 @@
 - **Cash variance:** mapped accounts must match Plaid balances within ±$0.01
 - **Period filtering:** uses inclusive `[from, to]` window on `txn_date`
 - **Exit policy:** any breach → non-zero exit with structured JSON
+- **Demo override:** for demos/CI, `pfetl reconcile --balances-json balances.json` can supply
+  curated period balances instead of live Plaid current balances (prod behavior unchanged).
 
 ## Determinism
 - **Report hashes:** same input produces identical HTML output

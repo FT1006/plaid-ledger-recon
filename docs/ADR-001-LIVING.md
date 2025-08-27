@@ -45,6 +45,12 @@ We ingest Plaid Sandbox transactions and produce an audit-ready GL in Postgres. 
   - Lineage: zero entries missing lineage fields in the period.
 - Exit policy: success=0; any breach=1.
 
+Demo/CI Override:
+- To avoid live Plaid point-in-time balance drift in demos, the CLI accepts
+  `--balances-json` to provide curated period balances. When supplied, Plaid
+  API is not called for balances. Production deployments should rely on Plaid
+  live balances (default behavior).
+
 5) Determinism
 
 - Transform skips pending transactions and uses stable sorting where applicable.

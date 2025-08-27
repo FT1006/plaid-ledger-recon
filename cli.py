@@ -207,11 +207,49 @@ def ingest(
         raise typer.Exit(1) from e
 
 
+def _load_balances_from_json(balances_json: str) -> dict[str, float]:
+    """Load balances from JSON file with validation."""
+    try:
+        data = json.loads(Path(balances_json).read_text())
+    except Exception as e:
+        typer.echo(f"❌ Failed to read --balances-json: {e}", err=True)
+        raise typer.Exit(1) from e
+
+    if not isinstance(data, dict):
+        typer.echo(
+            "❌ --balances-json must be JSON object {plaid_account_id: balance}",
+            err=True,
+        )
+        raise typer.Exit(1)
+    return {str(k): float(v) for k, v in data.items()}
+
+
+def _load_live_plaid_balances(access_token: str | None) -> dict[str, float]:
+    """Load live balances from Plaid API."""
+    if not access_token:
+        typer.echo("❌ PLAID_ACCESS_TOKEN not set in environment", err=True)
+        raise typer.Exit(1)
+    accounts = fetch_accounts(access_token)
+    return {
+        a["account_id"]: a.get("balances", {}).get("current", 0.0) for a in accounts
+    }
+
+
 @app.command("reconcile")
 def reconcile(
     item_id: Annotated[str, typer.Option("--item-id", help="Plaid item ID")],
     period: Annotated[str, typer.Option("--period", help="Period (e.g., 2024Q1)")],
     out: Annotated[str, typer.Option("--out", help="Output file for recon.json")],
+    balances_json: Annotated[
+        str | None,
+        typer.Option(
+            "--balances-json",
+            help=(
+                "Path to JSON file with balances {plaid_account_id: balance} "
+                "to override Plaid live balances (for demos/CI)"
+            ),
+        ),
+    ] = None,
 ) -> None:
     """Run reconciliation checks and generate recon.json."""
     load_dotenv()
@@ -222,9 +260,6 @@ def reconcile(
         raise typer.Exit(2)
 
     access_token = os.getenv("PLAID_ACCESS_TOKEN")
-    if not access_token:
-        typer.echo("❌ PLAID_ACCESS_TOKEN not set in environment", err=True)
-        raise typer.Exit(1)
 
     def _handle_success() -> None:
         typer.echo(f"✅ Reconciliation passed for {period}")
@@ -238,11 +273,11 @@ def reconcile(
 
     try:
         started_at = datetime.now(UTC).isoformat()
-        # Fetch current Plaid balances for comparison
-        accounts = fetch_accounts(access_token)
-        plaid_balances = {
-            a["account_id"]: a.get("balances", {}).get("current", 0.0) for a in accounts
-        }
+        # Determine balances source: override file (demo/CI) or live Plaid
+        if balances_json:
+            plaid_balances = _load_balances_from_json(balances_json)
+        else:
+            plaid_balances = _load_live_plaid_balances(access_token)
 
         # Connect to database and run reconciliation
         engine = create_engine(database_url)
@@ -292,6 +327,9 @@ def reconcile(
             _handle_success()
         _handle_failure()
 
+    except typer.Exit:
+        # Propagate intended exit codes (0 or 1) without wrapping
+        raise
     except Exception as e:
         typer.echo(f"❌ Error during reconciliation: {e}", err=True)
         raise typer.Exit(1) from e
