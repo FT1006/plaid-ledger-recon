@@ -7,6 +7,18 @@ pfetl init-db           # on first run or after reset
 pfetl ingest --item-id "$PLAID_ITEM_ID" --from 2024-08-01 --to 2024-08-31
 ```
 
+## Production pipeline (audit-ready)
+```bash
+# Official report generation must follow this sequence:
+pfetl reconcile --item-id "$ITEM_ID" --period 2024Q1 --out build/recon.json
+# ↳ Must succeed before publishing reports
+
+pfetl report --item-id "$ITEM_ID" --period 2024Q1 --out build/
+# ↳ Only publish if reconcile passed
+```
+
+**Note:** Reports can be generated independently for debugging, but official/published reports require successful reconciliation first.
+
 ## Health checks
 
 * **Exit codes:** non-zero means failure; see CLI error output

@@ -264,8 +264,10 @@ jobs:
         run: |
           echo "Nightly integration with real Plaid sandbox"
           # TODO(M4): Implement full pipeline with real Plaid credentials
-          # pfetl onboard --plaid-env sandbox
-          # pfetl ingest --from yesterday --to today
-          # pfetl reconcile --period daily
+          # Audit-ready pipeline pattern:
+          # pfetl onboard --sandbox
+          # pfetl ingest --item-id $ITEM_ID --from yesterday --to today
+          # pfetl reconcile --period daily --out build/recon.json    # must succeed
+          # pfetl report --period daily --out build/                # publish only after reconcile
           echo "Real Plaid integration not yet implemented"
           exit 0

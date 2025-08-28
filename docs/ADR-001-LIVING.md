@@ -45,6 +45,9 @@ We ingest Plaid Sandbox transactions and produce an audit-ready GL in Postgres. 
   - Lineage: zero entries missing lineage fields in the period.
 - Exit policy: success=0; any breach=1.
 
+Report Independence:
+- Reports may be generated without reconciliation for debugging, but must not be published unless a successful reconcile exists for the same period. CI enforces this; local runs are unrestricted.
+
 Demo/CI Override:
 - To avoid live Plaid point-in-time balance drift in demos, the CLI accepts
   `--balances-json` to provide curated period balances. When supplied, Plaid

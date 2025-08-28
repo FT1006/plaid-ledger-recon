@@ -41,6 +41,7 @@ pfetl reconcile --item-id abc123 --period 2024Q1 --out build/recon.json \
   --balances-json build/demo_balances.json
 
 # 8. Generate deterministic reports
+# RECOMMENDED: Run reconcile first for official reports (required for audit/production)
 pfetl report --item-id abc123 --period 2024Q1 --formats html,pdf --out build/
 ```
 
@@ -189,6 +190,7 @@ Net Operating CF    1,600.00
 
    - HTML report hash is stable → deterministic output.
    - Open `bs_2024Q1.html` in a browser to see Assets = Liabilities + Equity.
+   - **Note**: Reports can be generated anytime for debugging, but official/published reports should follow successful reconciliation.
 
 The whole flow takes ~2 minutes and shows **audit controls, reconciliation, and reporting** in action.
 
