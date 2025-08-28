@@ -317,9 +317,23 @@ def test_postgres_check_constraints_and_enums() -> None:
 
             conn.execute(
                 text("""
+                CREATE TABLE journal_entries (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    txn_id TEXT UNIQUE NOT NULL,
+                    txn_date DATE NOT NULL,
+                    description TEXT NOT NULL,
+                    currency CHAR(3) NOT NULL,
+                    source_hash TEXT NOT NULL,
+                    transform_version INTEGER NOT NULL
+                )
+            """)
+            )
+
+            conn.execute(
+                text("""
                 CREATE TABLE journal_lines (
                     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    entry_id UUID NOT NULL,
+                    entry_id UUID NOT NULL REFERENCES journal_entries(id),
                     account_id UUID NOT NULL REFERENCES accounts(id),
                     side TEXT NOT NULL CHECK (side IN ('debit','credit')),
                     amount NUMERIC(18,2) NOT NULL CHECK (amount >= 0)
@@ -336,12 +350,27 @@ def test_postgres_check_constraints_and_enums() -> None:
             """)
             ).scalar()
 
+            # Create a valid journal entry to use for constraint tests
+            entry_id = conn.execute(
+                text("""
+                INSERT INTO journal_entries (
+                    txn_id, txn_date, description, currency,
+                    source_hash, transform_version
+                )
+                VALUES (
+                    'constraint-test', '2024-01-01', 'For constraint testing',
+                    'USD', 'hash1', 1
+                )
+                RETURNING id
+            """)
+            ).scalar()
+
             conn.execute(
                 text("""
                 INSERT INTO journal_lines (entry_id, account_id, side, amount)
-                VALUES (gen_random_uuid(), :account_id, 'debit', 100.50)
+                VALUES (:entry_id, :account_id, 'debit', 100.50)
             """),
-                {"account_id": account_id},
+                {"entry_id": entry_id, "account_id": account_id},
             )
 
             # Invalid account type should fail
@@ -353,25 +382,37 @@ def test_postgres_check_constraints_and_enums() -> None:
                 """)
                 )
 
-            # Invalid side should fail
-            with pytest.raises(IntegrityError, match="violates check constraint"):
+            # Test invalid side constraint using savepoint
+            savepoint1 = conn.begin_nested()
+            try:
                 conn.execute(
                     text("""
                     INSERT INTO journal_lines (entry_id, account_id, side, amount)
-                    VALUES (gen_random_uuid(), :account_id, 'both', 50.00)
+                    VALUES (:entry_id, :account_id, 'both', 50.00)
                 """),
-                    {"account_id": account_id},
+                    {"entry_id": entry_id, "account_id": account_id},
                 )
+            except IntegrityError as e:
+                savepoint1.rollback()
+                assert "violates check constraint" in str(e)
+            else:
+                pytest.fail("Expected IntegrityError for invalid side")
 
-            # Negative amount should fail
-            with pytest.raises(IntegrityError, match="violates check constraint"):
+            # Test negative amount constraint using savepoint
+            savepoint2 = conn.begin_nested()
+            try:
                 conn.execute(
                     text("""
                     INSERT INTO journal_lines (entry_id, account_id, side, amount)
-                    VALUES (gen_random_uuid(), :account_id, 'credit', -25.00)
+                    VALUES (:entry_id, :account_id, 'credit', -25.00)
                 """),
-                    {"account_id": account_id},
+                    {"entry_id": entry_id, "account_id": account_id},
                 )
+            except IntegrityError as e:
+                savepoint2.rollback()
+                assert "violates check constraint" in str(e)
+            else:
+                pytest.fail("Expected IntegrityError for negative amount")
 
         finally:
             with contextlib.suppress(Exception):
