@@ -12,7 +12,9 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
+
+from tests.utils.db_helper import create_test_engine
 
 if not (
     os.getenv("DATABASE_URL")
@@ -32,7 +34,7 @@ def wait_for_db(database_url: str, max_retries: int = 30) -> None:
     """Wait for database to be ready, with retries."""
     for attempt in range(max_retries):
         try:
-            engine = create_engine(database_url)
+            engine = create_test_engine(database_url)
             with engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
         except Exception:
@@ -185,7 +187,7 @@ def test_e2e_full_ingest_pipeline(compose_services: Any) -> None:  # noqa: ARG00
     assert "Ingested" in result.stdout or "transactions" in result.stdout
 
     # 4. Verify data in database
-    engine = create_engine(database_url)
+    engine = create_test_engine(database_url)
     with engine.connect() as conn:
         # Check journal entries exist
         entry_count = conn.execute(
@@ -373,7 +375,7 @@ def test_e2e_credit_card_transactions(compose_services: Any) -> None:  # noqa: A
     assert result.returncode == 0, f"ingest failed: {result.stderr}"
 
     # Verify credit account data
-    engine = create_engine(database_url)
+    engine = create_test_engine(database_url)
     with engine.connect() as conn:
         # Check for credit accounts in ingest_accounts
         credit_accounts = conn.execute(

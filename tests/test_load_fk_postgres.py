@@ -4,7 +4,9 @@ import os
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
+
+from tests.utils.db_helper import create_test_engine
 
 from etl.load import load_journal_entries
 
@@ -21,7 +23,7 @@ def test_postgres_loader_resolves_account_fk() -> None:
     if not database_url:
         pytest.skip("DATABASE_URL not configured for integration test")
 
-    engine = create_engine(database_url)
+    engine = create_test_engine(database_url)
     schema_name = f"test_load_{uuid4().hex[:8]}"
 
     with engine.begin() as conn:
@@ -214,7 +216,7 @@ def test_postgres_loader_fails_on_unmapped_code() -> None:
     if not database_url:
         pytest.skip("DATABASE_URL not configured for integration test")
 
-    engine = create_engine(database_url)
+    engine = create_test_engine(database_url)
     schema_name = f"test_unmapped_{uuid4().hex[:8]}"
 
     with engine.begin() as conn:
@@ -332,7 +334,7 @@ def test_postgres_loader_env_var_behavior() -> None:
     if not database_url:
         pytest.skip("DATABASE_URL not configured for integration test")
 
-    engine = create_engine(database_url)
+    engine = create_test_engine(database_url)
     schema_name = f"test_env_{uuid4().hex[:8]}"
 
     with engine.begin() as conn:

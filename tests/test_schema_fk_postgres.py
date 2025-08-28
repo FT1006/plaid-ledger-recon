@@ -5,7 +5,9 @@ import os
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
+
+from tests.utils.db_helper import create_test_engine
 from sqlalchemy.exc import IntegrityError
 
 pytestmark = pytest.mark.skipif(
@@ -21,7 +23,7 @@ def test_postgres_journal_lines_fk_enforced() -> None:
     if not database_url:
         pytest.skip("DATABASE_URL not configured for integration test")
 
-    engine = create_engine(database_url)
+    engine = create_test_engine(database_url)
     schema_name = f"test_fk_{uuid4().hex[:8]}"
 
     with engine.connect() as conn:
@@ -129,7 +131,7 @@ def test_postgres_account_links_cascade_behavior() -> None:
     if not database_url:
         pytest.skip("DATABASE_URL not configured for integration test")
 
-    engine = create_engine(database_url)
+    engine = create_test_engine(database_url)
     schema_name = f"test_cascade_{uuid4().hex[:8]}"
 
     with engine.begin() as conn:
@@ -286,7 +288,7 @@ def test_postgres_check_constraints_and_enums() -> None:
     if not database_url:
         pytest.skip("DATABASE_URL not configured for integration test")
 
-    engine = create_engine(database_url)
+    engine = create_test_engine(database_url)
     schema_name = f"test_check_{uuid4().hex[:8]}"
 
     with engine.begin() as conn:
@@ -378,7 +380,7 @@ def test_postgres_uuid_and_timestamptz() -> None:
     if not database_url:
         pytest.skip("DATABASE_URL not configured for integration test")
 
-    engine = create_engine(database_url)
+    engine = create_test_engine(database_url)
     schema_name = f"test_uuid_{uuid4().hex[:8]}"
 
     with engine.begin() as conn:
