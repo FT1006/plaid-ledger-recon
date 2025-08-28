@@ -196,7 +196,7 @@ jobs:
       # For nightly runs, use real credentials from secrets
       PLAID_CLIENT_ID: ${{ github.event_name == 'schedule' && secrets.PLAID_CLIENT_ID || 'mock_client_id' }}
       PLAID_SECRET: ${{ github.event_name == 'schedule' && secrets.PLAID_SECRET || 'mock_secret' }}
-      PLAID_ENV: ${{ github.event_name == 'schedule' && 'sandbox' || 'mock' }}
+      PLAID_ENV: ${{ github.event_name == 'schedule' && 'sandbox' || 'sandbox' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

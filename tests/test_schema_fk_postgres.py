@@ -6,9 +6,9 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from tests.utils.db_helper import create_test_engine
-from sqlalchemy.exc import IntegrityError
 
 pytestmark = pytest.mark.skipif(
     not os.getenv("DATABASE_URL"),
@@ -120,8 +120,9 @@ def test_postgres_journal_lines_fk_enforced() -> None:
             # Cleanup - rollback any failed transaction first
             with contextlib.suppress(Exception):
                 conn.rollback()
-            conn.execute(text(f"DROP SCHEMA {schema_name} CASCADE"))
-            conn.commit()
+            with contextlib.suppress(Exception):
+                conn.execute(text(f"DROP SCHEMA {schema_name} CASCADE"))
+                conn.commit()
 
 
 @pytest.mark.integration
@@ -278,7 +279,10 @@ def test_postgres_account_links_cascade_behavior() -> None:
                 )
 
         finally:
-            conn.execute(text(f"DROP SCHEMA {schema_name} CASCADE"))
+            with contextlib.suppress(Exception):
+                conn.rollback()
+            with contextlib.suppress(Exception):
+                conn.execute(text(f"DROP SCHEMA {schema_name} CASCADE"))
 
 
 @pytest.mark.integration
@@ -370,7 +374,10 @@ def test_postgres_check_constraints_and_enums() -> None:
                 )
 
         finally:
-            conn.execute(text(f"DROP SCHEMA {schema_name} CASCADE"))
+            with contextlib.suppress(Exception):
+                conn.rollback()
+            with contextlib.suppress(Exception):
+                conn.execute(text(f"DROP SCHEMA {schema_name} CASCADE"))
 
 
 @pytest.mark.integration
@@ -439,4 +446,7 @@ def test_postgres_uuid_and_timestamptz() -> None:
                 )
 
         finally:
-            conn.execute(text(f"DROP SCHEMA {schema_name} CASCADE"))
+            with contextlib.suppress(Exception):
+                conn.rollback()
+            with contextlib.suppress(Exception):
+                conn.execute(text(f"DROP SCHEMA {schema_name} CASCADE"))

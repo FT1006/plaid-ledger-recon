@@ -6,9 +6,8 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
-from tests.utils.db_helper import create_test_engine
-
 from etl.load import load_journal_entries
+from tests.utils.db_helper import create_test_engine
 
 pytestmark = pytest.mark.skipif(
     not os.getenv("DATABASE_URL"),
