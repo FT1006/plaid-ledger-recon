@@ -406,34 +406,35 @@ def test_postgres_loader_env_var_behavior() -> None:
 
             # Entry with unmapped account code - generate UUID for uniqueness
             unique_missing_code = f"Expenses:Unmapped:{uuid4()}"
-            entries = [
-                {
-                    "txn_id": "env_test_txn",
-                    "txn_date": "2024-01-01",
-                    "description": "Environment variable test",
-                    "currency": "USD",
-                    "source_hash": "env_test_hash",
-                    "transform_version": 1,
-                    "lines": [
-                        {
-                            "account": "Assets:Bank:Checking",
-                            "side": "debit",
-                            "amount": 50.00,
-                        },
-                        {
-                            "account": unique_missing_code,
-                            "side": "credit",
-                            "amount": 50.00,
-                        },
-                    ],
-                }
-            ]
 
             # Test default behavior (should fail)
             old_env = os.environ.get("PFETL_AUTO_CREATE_ACCOUNTS")
             try:
                 # Remove env var - default is false
                 os.environ.pop("PFETL_AUTO_CREATE_ACCOUNTS", None)
+
+                entries = [
+                    {
+                        "txn_id": f"env_test_txn_default_{uuid4().hex[:8]}",
+                        "txn_date": "2024-01-01",
+                        "description": "Environment variable test - default",
+                        "currency": "USD",
+                        "source_hash": "env_test_hash_default",
+                        "transform_version": 1,
+                        "lines": [
+                            {
+                                "account": "Assets:Bank:Checking",
+                                "side": "debit",
+                                "amount": 50.00,
+                            },
+                            {
+                                "account": unique_missing_code,
+                                "side": "credit",
+                                "amount": 50.00,
+                            },
+                        ],
+                    }
+                ]
 
                 with pytest.raises(
                     ValueError,
@@ -446,6 +447,29 @@ def test_postgres_loader_env_var_behavior() -> None:
 
                 # Explicitly set to false
                 os.environ["PFETL_AUTO_CREATE_ACCOUNTS"] = "false"
+                entries = [
+                    {
+                        "txn_id": f"env_test_txn_false_{uuid4().hex[:8]}",
+                        "txn_date": "2024-01-01",
+                        "description": "Environment variable test - false",
+                        "currency": "USD",
+                        "source_hash": "env_test_hash_false",
+                        "transform_version": 1,
+                        "lines": [
+                            {
+                                "account": "Assets:Bank:Checking",
+                                "side": "debit",
+                                "amount": 50.00,
+                            },
+                            {
+                                "account": unique_missing_code,
+                                "side": "credit",
+                                "amount": 50.00,
+                            },
+                        ],
+                    }
+                ]
+
                 with pytest.raises(
                     ValueError,
                     match=(
@@ -457,6 +481,29 @@ def test_postgres_loader_env_var_behavior() -> None:
 
                 # Set to "0" (should also be false)
                 os.environ["PFETL_AUTO_CREATE_ACCOUNTS"] = "0"
+                entries = [
+                    {
+                        "txn_id": f"env_test_txn_zero_{uuid4().hex[:8]}",
+                        "txn_date": "2024-01-01",
+                        "description": "Environment variable test - zero",
+                        "currency": "USD",
+                        "source_hash": "env_test_hash_zero",
+                        "transform_version": 1,
+                        "lines": [
+                            {
+                                "account": "Assets:Bank:Checking",
+                                "side": "debit",
+                                "amount": 50.00,
+                            },
+                            {
+                                "account": unique_missing_code,
+                                "side": "credit",
+                                "amount": 50.00,
+                            },
+                        ],
+                    }
+                ]
+
                 with pytest.raises(
                     ValueError,
                     match=(

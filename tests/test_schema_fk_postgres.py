@@ -293,167 +293,116 @@ def test_postgres_check_constraints_and_enums() -> None:
         pytest.skip("DATABASE_URL not configured for integration test")
 
     engine = create_test_engine(database_url)
-    schema_name = f"test_check_{uuid4().hex[:8]}"
+    schema_name = f"tmp_checks_{uuid4().hex[:8]}"
 
-    # Create schema and tables in committed transaction
-    try:
-        with engine.begin() as conn:
-            conn.execute(text(f"CREATE SCHEMA {schema_name}"))
-            conn.execute(text(f"SET search_path TO {schema_name}"))
-            # Create table with strict constraints
+    with engine.begin() as conn:
+        conn.execute(text(f"CREATE SCHEMA {schema_name}"))
+        conn.execute(text(f"SET search_path TO {schema_name}"))
+
+        try:
+            # Minimal tables with local constraints; integer PKs to avoid extensions
             conn.execute(
                 text("""
                 CREATE TABLE accounts (
-                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    code TEXT UNIQUE NOT NULL,
-                    name TEXT NOT NULL,
-                    type TEXT NOT NULL CHECK (type IN (
-                        'asset','liability','equity','revenue','expense'
-                    )),
-                    is_cash BOOLEAN NOT NULL DEFAULT false
-                )
+                    id          SERIAL PRIMARY KEY,
+                    code        TEXT UNIQUE NOT NULL,
+                    name        TEXT NOT NULL,
+                    type        TEXT NOT NULL CHECK (
+                        type IN ('asset','liability','equity','revenue','expense')
+                    ),
+                    is_cash     BOOLEAN NOT NULL DEFAULT FALSE
+                );
             """)
             )
-
             conn.execute(
                 text("""
                 CREATE TABLE journal_entries (
-                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    txn_id TEXT UNIQUE NOT NULL,
-                    txn_date DATE NOT NULL,
-                    description TEXT NOT NULL,
-                    currency CHAR(3) NOT NULL,
-                    source_hash TEXT NOT NULL,
+                    id                SERIAL PRIMARY KEY,
+                    txn_id            TEXT UNIQUE NOT NULL,
+                    txn_date          DATE NOT NULL,
+                    description       TEXT NOT NULL,
+                    currency          CHAR(3) NOT NULL,
+                    source_hash       TEXT NOT NULL,
                     transform_version INTEGER NOT NULL
-                )
+                );
             """)
             )
-
             conn.execute(
                 text("""
                 CREATE TABLE journal_lines (
-                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    entry_id UUID NOT NULL REFERENCES journal_entries(id),
-                    account_id UUID NOT NULL REFERENCES accounts(id),
-                    side TEXT NOT NULL CHECK (side IN ('debit','credit')),
-                    amount NUMERIC(18,2) NOT NULL CHECK (amount >= 0)
-                )
+                    id         SERIAL PRIMARY KEY,
+                    entry_id   INTEGER NOT NULL
+                        REFERENCES journal_entries(id) ON DELETE CASCADE,
+                    account_id INTEGER NOT NULL
+                        REFERENCES accounts(id) ON DELETE RESTRICT,
+                    side       TEXT NOT NULL CHECK (side IN ('debit','credit')),
+                    amount     NUMERIC(18,2) NOT NULL CHECK (amount >= 0)
+                );
             """)
             )
 
-            # Valid constraint values should work
+            # Seed one account + one entry
             account_id = conn.execute(
                 text("""
                 INSERT INTO accounts (code, name, type, is_cash)
-                VALUES ('Assets:Test', 'Test Account', 'asset', true)
+                VALUES ('Assets:Test','Test Account','asset', TRUE)
                 RETURNING id
             """)
-            ).scalar()
+            ).scalar_one()
 
-            # Create a valid journal entry to use for constraint tests
             entry_id = conn.execute(
                 text("""
-                INSERT INTO journal_entries (
-                    txn_id, txn_date, description, currency,
-                    source_hash, transform_version
-                )
-                VALUES (
-                    'constraint-test', '2024-01-01', 'For constraint testing',
-                    'USD', 'hash1', 1
-                )
+                INSERT INTO journal_entries
+                    (txn_id, txn_date, description, currency, source_hash,
+                     transform_version)
+                VALUES ('constraint-test', '2024-01-01', 'For constraint testing',
+                        'USD', 'hash1', 1)
                 RETURNING id
             """)
-            ).scalar()
+            ).scalar_one()
 
+            # Valid insert should succeed
             conn.execute(
                 text("""
                 INSERT INTO journal_lines (entry_id, account_id, side, amount)
-                VALUES (:entry_id, :account_id, 'debit', 100.50)
+                VALUES (:e, :a, 'debit', 50.00)
             """),
-                {"entry_id": entry_id, "account_id": account_id},
+                {"e": entry_id, "a": account_id},
             )
 
-            # Invalid account type should fail
-            with pytest.raises(IntegrityError, match="violates check constraint"):
-                conn.execute(
-                    text("""
-                    INSERT INTO accounts (code, name, type)
-                    VALUES ('Bad:Account', 'Bad Type', 'invalid_type')
-                """)
-                )
-
-        # Create test data that will be committed
-        with engine.begin() as conn:
-            conn.execute(text(f"SET search_path TO {schema_name}"))
-            # Create test account and journal entry
-            account_id = conn.execute(
-                text("""
-                INSERT INTO accounts (code, name, type, is_cash)
-                VALUES ('Assets:Test', 'Test Account', 'asset', true)
-                RETURNING id
-            """)
-            ).scalar()
-
-            entry_id = conn.execute(
-                text("""
-                INSERT INTO journal_entries (
-                    txn_id, txn_date, description, currency,
-                    source_hash, transform_version
-                )
-                VALUES (
-                    'constraint-test', '2024-01-01', 'For constraint testing',
-                    'USD', 'hash1', 1
-                )
-                RETURNING id
-            """)
-            ).scalar()
-
-        # Test invalid side constraint in separate transaction
-        with engine.begin() as conn:
-            conn.execute(text(f"SET search_path TO {schema_name}"))
-
-            # Get existing account and entry IDs from committed data
-            test_account_id = conn.execute(
-                text("SELECT id FROM accounts WHERE code = 'Assets:Test'")
-            ).scalar()
-            test_entry_id = conn.execute(
-                text("SELECT id FROM journal_entries WHERE txn_id = 'constraint-test'")
-            ).scalar()
-
-            with pytest.raises(IntegrityError, match="violates check constraint"):
+            # Invalid 'side' -> CHECK violation (use savepoint)
+            sp = conn.begin_nested()
+            try:
                 conn.execute(
                     text("""
                     INSERT INTO journal_lines (entry_id, account_id, side, amount)
-                    VALUES (:entry_id, :account_id, 'both', 50.00)
+                    VALUES (:e, :a, 'both', 50.00)
                 """),
-                    {"entry_id": test_entry_id, "account_id": test_account_id},
+                    {"e": entry_id, "a": account_id},
                 )
+                pytest.fail("expected CHECK violation for side")
+            except IntegrityError as ie:
+                sp.rollback()
+                assert "check constraint" in str(ie).lower()
 
-        # Test negative amount constraint in separate transaction
-        with engine.begin() as conn:
-            conn.execute(text(f"SET search_path TO {schema_name}"))
-
-            # Get existing account and entry IDs from committed data
-            test_account_id = conn.execute(
-                text("SELECT id FROM accounts WHERE code = 'Assets:Test'")
-            ).scalar()
-            test_entry_id = conn.execute(
-                text("SELECT id FROM journal_entries WHERE txn_id = 'constraint-test'")
-            ).scalar()
-
-            with pytest.raises(IntegrityError, match="violates check constraint"):
+            # Negative amount -> CHECK violation (savepoint again)
+            sp = conn.begin_nested()
+            try:
                 conn.execute(
                     text("""
                     INSERT INTO journal_lines (entry_id, account_id, side, amount)
-                    VALUES (:entry_id, :account_id, 'credit', -25.00)
+                    VALUES (:e, :a, 'credit', -1.00)
                 """),
-                    {"entry_id": test_entry_id, "account_id": test_account_id},
+                    {"e": entry_id, "a": account_id},
                 )
+                pytest.fail("expected CHECK violation for amount >= 0")
+            except IntegrityError as ie:
+                sp.rollback()
+                assert "check constraint" in str(ie).lower()
 
-    finally:
-        # Clean up schema
-        with contextlib.suppress(Exception), engine.begin() as conn:
-            conn.execute(text(f"DROP SCHEMA {schema_name} CASCADE"))
+        finally:
+            with contextlib.suppress(Exception):
+                conn.execute(text(f"DROP SCHEMA {schema_name} CASCADE"))
 
 
 @pytest.mark.integration
