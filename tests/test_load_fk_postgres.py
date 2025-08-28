@@ -1,6 +1,7 @@
 """PostgreSQL integration tests for loader FK resolution."""
 
 import os
+import re
 from uuid import uuid4
 
 import pytest
@@ -403,7 +404,8 @@ def test_postgres_loader_env_var_behavior() -> None:
             """)
             )
 
-            # Entry with unmapped account code
+            # Entry with unmapped account code - generate UUID for uniqueness
+            unique_missing_code = f"Expenses:Unmapped:{uuid4()}"
             entries = [
                 {
                     "txn_id": "env_test_txn",
@@ -419,7 +421,7 @@ def test_postgres_loader_env_var_behavior() -> None:
                             "amount": 50.00,
                         },
                         {
-                            "account": f"Expenses:Unmapped:{uuid4()}",
+                            "account": unique_missing_code,
                             "side": "credit",
                             "amount": 50.00,
                         },
@@ -435,7 +437,10 @@ def test_postgres_loader_env_var_behavior() -> None:
 
                 with pytest.raises(
                     ValueError,
-                    match=r"No GL account found for code: Expenses:Unmapped:",
+                    match=(
+                        f"No GL account found for code: "
+                        f"{re.escape(unique_missing_code)}"
+                    ),
                 ):
                     load_journal_entries(entries, conn)
 
@@ -443,7 +448,10 @@ def test_postgres_loader_env_var_behavior() -> None:
                 os.environ["PFETL_AUTO_CREATE_ACCOUNTS"] = "false"
                 with pytest.raises(
                     ValueError,
-                    match=r"No GL account found for code: Expenses:Unmapped:",
+                    match=(
+                        f"No GL account found for code: "
+                        f"{re.escape(unique_missing_code)}"
+                    ),
                 ):
                     load_journal_entries(entries, conn)
 
@@ -451,7 +459,10 @@ def test_postgres_loader_env_var_behavior() -> None:
                 os.environ["PFETL_AUTO_CREATE_ACCOUNTS"] = "0"
                 with pytest.raises(
                     ValueError,
-                    match=r"No GL account found for code: Expenses:Unmapped:",
+                    match=(
+                        f"No GL account found for code: "
+                        f"{re.escape(unique_missing_code)}"
+                    ),
                 ):
                     load_journal_entries(entries, conn)
 
