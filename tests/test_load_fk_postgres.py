@@ -419,7 +419,7 @@ def test_postgres_loader_env_var_behavior() -> None:
                             "amount": 50.00,
                         },
                         {
-                            "account": "Expenses:Second:DefinitelyMissing",
+                            "account": f"Expenses:Unmapped:{uuid4()}",
                             "side": "credit",
                             "amount": 50.00,
                         },
@@ -435,10 +435,7 @@ def test_postgres_loader_env_var_behavior() -> None:
 
                 with pytest.raises(
                     ValueError,
-                    match=(
-                        "No GL account found for code: "
-                        + "Expenses:Second:DefinitelyMissing"
-                    ),
+                    match=r"No GL account found for code: Expenses:Unmapped:",
                 ):
                     load_journal_entries(entries, conn)
 
@@ -446,10 +443,7 @@ def test_postgres_loader_env_var_behavior() -> None:
                 os.environ["PFETL_AUTO_CREATE_ACCOUNTS"] = "false"
                 with pytest.raises(
                     ValueError,
-                    match=(
-                        "No GL account found for code: "
-                        + "Expenses:Second:DefinitelyMissing"
-                    ),
+                    match=r"No GL account found for code: Expenses:Unmapped:",
                 ):
                     load_journal_entries(entries, conn)
 
@@ -457,10 +451,7 @@ def test_postgres_loader_env_var_behavior() -> None:
                 os.environ["PFETL_AUTO_CREATE_ACCOUNTS"] = "0"
                 with pytest.raises(
                     ValueError,
-                    match=(
-                        "No GL account found for code: "
-                        + "Expenses:Second:DefinitelyMissing"
-                    ),
+                    match=r"No GL account found for code: Expenses:Unmapped:",
                 ):
                     load_journal_entries(entries, conn)
 

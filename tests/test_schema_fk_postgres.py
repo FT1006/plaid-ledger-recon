@@ -382,43 +382,53 @@ def test_postgres_check_constraints_and_enums() -> None:
                 """)
                 )
 
-            # Test invalid side constraint using savepoint
-            savepoint1 = conn.begin_nested()
-            try:
-                conn.execute(
-                    text("""
-                    INSERT INTO journal_lines (entry_id, account_id, side, amount)
-                    VALUES (:entry_id, :account_id, 'both', 50.00)
-                """),
-                    {"entry_id": entry_id, "account_id": account_id},
-                )
-            except IntegrityError as e:
-                savepoint1.rollback()
-                assert "violates check constraint" in str(e)
-            else:
-                pytest.fail("Expected IntegrityError for invalid side")
-
-            # Test negative amount constraint using savepoint
-            savepoint2 = conn.begin_nested()
-            try:
-                conn.execute(
-                    text("""
-                    INSERT INTO journal_lines (entry_id, account_id, side, amount)
-                    VALUES (:entry_id, :account_id, 'credit', -25.00)
-                """),
-                    {"entry_id": entry_id, "account_id": account_id},
-                )
-            except IntegrityError as e:
-                savepoint2.rollback()
-                assert "violates check constraint" in str(e)
-            else:
-                pytest.fail("Expected IntegrityError for negative amount")
-
         finally:
             with contextlib.suppress(Exception):
                 conn.rollback()
             with contextlib.suppress(Exception):
                 conn.execute(text(f"DROP SCHEMA {schema_name} CASCADE"))
+
+    # Test invalid side constraint in separate transaction
+    with engine.begin() as conn:
+        conn.execute(text(f"SET search_path TO {schema_name}"))
+
+        # Get existing account and entry IDs
+        account_id = conn.execute(
+            text("SELECT id FROM accounts WHERE code = 'Assets:Test'")
+        ).scalar()
+        entry_id = conn.execute(
+            text("SELECT id FROM journal_entries WHERE txn_id = 'constraint-test'")
+        ).scalar()
+
+        with pytest.raises(IntegrityError, match="violates check constraint"):
+            conn.execute(
+                text("""
+                INSERT INTO journal_lines (entry_id, account_id, side, amount)
+                VALUES (:entry_id, :account_id, 'both', 50.00)
+            """),
+                {"entry_id": entry_id, "account_id": account_id},
+            )
+
+    # Test negative amount constraint in separate transaction
+    with engine.begin() as conn:
+        conn.execute(text(f"SET search_path TO {schema_name}"))
+
+        # Get existing account and entry IDs
+        account_id = conn.execute(
+            text("SELECT id FROM accounts WHERE code = 'Assets:Test'")
+        ).scalar()
+        entry_id = conn.execute(
+            text("SELECT id FROM journal_entries WHERE txn_id = 'constraint-test'")
+        ).scalar()
+
+        with pytest.raises(IntegrityError, match="violates check constraint"):
+            conn.execute(
+                text("""
+                INSERT INTO journal_lines (entry_id, account_id, side, amount)
+                VALUES (:entry_id, :account_id, 'credit', -25.00)
+            """),
+                {"entry_id": entry_id, "account_id": account_id},
+            )
 
 
 @pytest.mark.integration
