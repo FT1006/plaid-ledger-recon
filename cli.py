@@ -2,6 +2,7 @@
 """CLI interface for Plaid Financial ETL pipeline."""
 
 import json
+import logging
 import os
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -10,7 +11,8 @@ from typing import Annotated
 import psycopg
 import typer
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.exc import SQLAlchemyError
 
 from etl.connectors.plaid_client import create_plaid_client_from_env
 from etl.extract import fetch_accounts, sync_transactions
@@ -449,6 +451,110 @@ def map_account(
         typer.echo(f"{_mark_success()} Linked {plaid_account_id} → {gl_code}")
     except Exception as e:
         typer.echo(f"{_mark_error()} Mapping failed: {e}", err=True)
+        raise typer.Exit(1) from e
+
+
+@app.command()
+def list_plaid_accounts(  # noqa: PLR0912
+    item_id: Annotated[str, typer.Option("--item-id", help="Plaid ITEM_ID")],
+    json_out: Annotated[bool, typer.Option("--json", help="Output JSON")] = False,
+) -> None:
+    """List Plaid accounts for an item (shows IDs for mapping)."""
+
+    def _exit_no_accounts_found(message: str | None = None) -> None:
+        """Exit with error when no accounts found."""
+        if message is None:
+            message = f"No Plaid accounts found for item_id: {item_id}"
+        typer.echo(f"{_mark_error()} {message}", err=True)
+        raise typer.Exit(1)
+
+    try:
+        rows = []
+        engine = create_engine(os.environ["DATABASE_URL"])
+
+        # 1) Try API first (if access token available)
+        try:
+            access_token = os.getenv("PLAID_ACCESS_TOKEN")
+            if access_token:
+                accounts = fetch_accounts(access_token)
+                rows = [
+                    {
+                        "plaid_account_id": acc["account_id"],
+                        "name": acc["name"],
+                        "type": acc["type"],
+                        "subtype": acc["subtype"],
+                    }
+                    for acc in accounts
+                ]
+        except Exception as e:
+            logging.debug("API call failed, falling back to DB: %s", e)
+
+        # 2) Try DB join via ingest_accounts (preferred), portable
+        if not rows:
+            with engine.begin() as conn:
+                try:
+                    insp = inspect(conn)
+                    if not insp.has_table("ingest_accounts"):
+                        _exit_no_accounts_found(
+                            "Cannot scope by item_id yet. Ingest this item first."
+                        )
+
+                    query = text("""
+                        SELECT DISTINCT
+                            pa.plaid_account_id,
+                            pa.name,
+                            pa.type,
+                            pa.subtype
+                        FROM ingest_accounts ia
+                        JOIN plaid_accounts pa
+                            ON pa.plaid_account_id = ia.plaid_account_id
+                        WHERE ia.item_id = :item_id
+                        ORDER BY pa.name
+                    """)
+                    rows = [
+                        {
+                            "plaid_account_id": r[0],
+                            "name": r[1],
+                            "type": r[2],
+                            "subtype": r[3],
+                        }
+                        for r in conn.execute(query, {"item_id": item_id}).fetchall()
+                    ]
+
+                    if not rows:
+                        # Is the table empty entirely, or just no rows for this item?
+                        has_any_data = conn.execute(
+                            text("SELECT 1 FROM ingest_accounts LIMIT 1")
+                        ).fetchone()
+                        if not has_any_data:
+                            _exit_no_accounts_found(
+                                "Cannot scope by item_id yet. Ingest this item first."
+                            )
+                        else:
+                            _exit_no_accounts_found(
+                                f"No Plaid accounts found for item_id: {item_id}"
+                            )
+
+                except SQLAlchemyError:
+                    # Generic DB error → treat as scoping unavailable for now
+                    _exit_no_accounts_found(
+                        "Cannot scope by item_id yet. Ingest this item first."
+                    )
+
+        if not rows:
+            _exit_no_accounts_found()
+
+        if json_out:
+            typer.echo(json.dumps(rows, indent=2))
+        else:
+            for r in rows:
+                typer.echo(
+                    f"{r['plaid_account_id']} | {r['name']} | "
+                    f"{r['type']}/{r['subtype']}"
+                )
+
+    except Exception as e:
+        typer.echo(f"{_mark_error()} Failed to list accounts: {e}", err=True)
         raise typer.Exit(1) from e
 
 
