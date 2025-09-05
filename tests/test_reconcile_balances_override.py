@@ -157,7 +157,7 @@ def test_reconcile_uses_balances_json_override(tmp_path: Any, monkeypatch: Any) 
     _seed_minimal_gl(db_url)
 
     balances_path = tmp_path / "balances.json"
-    # Provide period movement balance 150.00 matching GL
+    # Provide ending (AS-OF) balance 150.00 matching GL
     balances_path.write_text(json.dumps({"plaid_checking": 150.00}))
 
     # Point CLI to our SQLite DB and run without PLAID creds
