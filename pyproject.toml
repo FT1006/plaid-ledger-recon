@@ -59,8 +59,8 @@ known-first-party = ["etl"]
 [tool.ruff.lint.per-file-ignores]
 "etl/__init__.py" = ["F401"]
 "etl/extract.py" = ["ARG001"]
-"cli.py" = ["ARG001", "T201"]
-"tests/**/*.py" = ["S101", "PLR2004", "ANN", "T201"]
+"cli.py" = ["ARG001", "T201", "PLR0915"]
+"tests/**/*.py" = ["S101", "PLR2004", "ANN", "T201", "PLC0415"]
 
 [tool.ruff.format]
 preview = true

@@ -10,7 +10,6 @@ from unittest.mock import patch
 if TYPE_CHECKING:
     from pathlib import Path
 
-from cli import app
 from sqlalchemy import create_engine, text
 from typer.testing import CliRunner
 
@@ -163,9 +162,19 @@ def test_cli_reconcile_writes_etl_event_success(tmp_path: Path) -> None:
     out_json = tmp_path / "recon.json"
 
     # Run CLI command
-    with patch.dict("os.environ", {"DATABASE_URL": db_url}, clear=True):
+    with (
+        patch.dict(
+            "os.environ", {"DATABASE_URL": db_url, "PFETL_SKIP_DOTENV": "1"}, clear=True
+        ),
+        patch("dotenv.load_dotenv"),
+    ):
+        import importlib
+
+        import cli
+
+        importlib.reload(cli)
         result = runner.invoke(
-            app,
+            cli.app,
             [
                 "reconcile",
                 "--item-id",
@@ -226,9 +235,19 @@ def test_cli_reconcile_writes_etl_event_failure(tmp_path: Path) -> None:
     out_json = tmp_path / "recon.json"
 
     # Run CLI command (should fail)
-    with patch.dict("os.environ", {"DATABASE_URL": db_url}, clear=True):
+    with (
+        patch.dict(
+            "os.environ", {"DATABASE_URL": db_url, "PFETL_SKIP_DOTENV": "1"}, clear=True
+        ),
+        patch("dotenv.load_dotenv"),
+    ):
+        import importlib
+
+        import cli
+
+        importlib.reload(cli)
         result = runner.invoke(
-            app,
+            cli.app,
             [
                 "reconcile",
                 "--item-id",
@@ -289,9 +308,19 @@ def test_cli_reconcile_includes_period_column(tmp_path: Path) -> None:
     out_json = tmp_path / "recon.json"
 
     # Run CLI command
-    with patch.dict("os.environ", {"DATABASE_URL": db_url}, clear=True):
+    with (
+        patch.dict(
+            "os.environ", {"DATABASE_URL": db_url, "PFETL_SKIP_DOTENV": "1"}, clear=True
+        ),
+        patch("dotenv.load_dotenv"),
+    ):
+        import importlib
+
+        import cli
+
+        importlib.reload(cli)
         result = runner.invoke(
-            app,
+            cli.app,
             [
                 "reconcile",
                 "--item-id",
@@ -351,9 +380,19 @@ def test_cli_reconcile_coverage_failure_records_event(tmp_path: Path) -> None:
     out_json = tmp_path / "recon.json"
 
     # Run CLI command (should fail due to coverage)
-    with patch.dict("os.environ", {"DATABASE_URL": db_url}, clear=True):
+    with (
+        patch.dict(
+            "os.environ", {"DATABASE_URL": db_url, "PFETL_SKIP_DOTENV": "1"}, clear=True
+        ),
+        patch("dotenv.load_dotenv"),
+    ):
+        import importlib
+
+        import cli
+
+        importlib.reload(cli)
         result = runner.invoke(
-            app,
+            cli.app,
             [
                 "reconcile",
                 "--item-id",
@@ -408,14 +447,25 @@ def test_cli_reconcile_exception_path_records_event(tmp_path: Path) -> None:
     # Output file for reconciliation
     out_json = tmp_path / "recon.json"
 
-    # Patch run_reconciliation to raise an exception
-    with patch("cli.run_reconciliation") as mock_reconcile:
-        mock_reconcile.side_effect = RuntimeError("Simulated reconciliation failure")
+    # Run CLI command with environment and mocked reconciliation
+    with (
+        patch.dict(
+            "os.environ", {"DATABASE_URL": db_url, "PFETL_SKIP_DOTENV": "1"}, clear=True
+        ),
+        patch("dotenv.load_dotenv"),
+    ):
+        import importlib
 
-        # Run CLI command with environment
-        with patch.dict("os.environ", {"DATABASE_URL": db_url}, clear=True):
+        import cli
+
+        importlib.reload(cli)
+        # Patch after reload so it applies to the reloaded module
+        with patch("cli.run_reconciliation") as mock_reconcile:
+            mock_reconcile.side_effect = RuntimeError(
+                "Simulated reconciliation failure"
+            )
             result = runner.invoke(
-                app,
+                cli.app,
                 [
                     "reconcile",
                     "--item-id",
@@ -469,9 +519,19 @@ def test_reconcile_requires_balance_source_none(tmp_path: Path) -> None:
     out_json = tmp_path / "recon.json"
 
     # Run CLI command with neither data source specified
-    with patch.dict("os.environ", {"DATABASE_URL": db_url}, clear=True):
+    with (
+        patch.dict(
+            "os.environ", {"DATABASE_URL": db_url, "PFETL_SKIP_DOTENV": "1"}, clear=True
+        ),
+        patch("dotenv.load_dotenv"),
+    ):
+        import importlib
+
+        import cli
+
+        importlib.reload(cli)
         result = runner.invoke(
-            app,
+            cli.app,
             [
                 "reconcile",
                 "--item-id",
@@ -510,9 +570,19 @@ def test_reconcile_requires_balance_source_both(tmp_path: Path) -> None:
     out_json = tmp_path / "recon.json"
 
     # Run CLI command with both data sources specified
-    with patch.dict("os.environ", {"DATABASE_URL": db_url}, clear=True):
+    with (
+        patch.dict(
+            "os.environ", {"DATABASE_URL": db_url, "PFETL_SKIP_DOTENV": "1"}, clear=True
+        ),
+        patch("dotenv.load_dotenv"),
+    ):
+        import importlib
+
+        import cli
+
+        importlib.reload(cli)
         result = runner.invoke(
-            app,
+            cli.app,
             [
                 "reconcile",
                 "--item-id",
@@ -549,10 +619,20 @@ def test_reconcile_live_requires_plaid_creds(tmp_path: Path) -> None:
     out_json = tmp_path / "recon.json"
 
     # Run CLI command with --use-plaid-live but no access token
-    with patch.dict("os.environ", {"DATABASE_URL": db_url}, clear=True):
-        # Explicitly clear PLAID_ACCESS_TOKEN
+    with (
+        patch.dict(
+            "os.environ", {"DATABASE_URL": db_url, "PFETL_SKIP_DOTENV": "1"}, clear=True
+        ),
+        patch("dotenv.load_dotenv"),  # belt & suspenders
+        patch("etl.extract.fetch_accounts") as mock_fetch,  # patch where cli calls
+    ):
+        import importlib
+
+        import cli
+
+        importlib.reload(cli)
         result = runner.invoke(
-            app,
+            cli.app,
             [
                 "reconcile",
                 "--item-id",
@@ -568,6 +648,10 @@ def test_reconcile_live_requires_plaid_creds(tmp_path: Path) -> None:
     # Should fail with exit code 1 (operational failure)
     assert result.exit_code == 1
     assert "PLAID_ACCESS_TOKEN not set in environment" in result.output
+    # Ensure fetch_accounts was not called (fail-fast behavior)
+    mock_fetch.assert_not_called()
+    # Fail-fast means no output file created
+    assert not out_json.exists()
 
 
 def test_reconcile_balances_json_requires_full_cash_coverage(tmp_path: Path) -> None:
@@ -622,9 +706,19 @@ def test_reconcile_balances_json_requires_full_cash_coverage(tmp_path: Path) -> 
     out_json = tmp_path / "recon.json"
 
     # Run CLI command
-    with patch.dict("os.environ", {"DATABASE_URL": db_url}, clear=True):
+    with (
+        patch.dict(
+            "os.environ", {"DATABASE_URL": db_url, "PFETL_SKIP_DOTENV": "1"}, clear=True
+        ),
+        patch("dotenv.load_dotenv"),
+    ):
+        import importlib
+
+        import cli
+
+        importlib.reload(cli)
         result = runner.invoke(
-            app,
+            cli.app,
             [
                 "reconcile",
                 "--item-id",
@@ -715,9 +809,19 @@ def test_reconcile_balances_json_allows_extras_and_non_cash(tmp_path: Path) -> N
     out_json = tmp_path / "recon.json"
 
     # Run CLI command
-    with patch.dict("os.environ", {"DATABASE_URL": db_url}, clear=True):
+    with (
+        patch.dict(
+            "os.environ", {"DATABASE_URL": db_url, "PFETL_SKIP_DOTENV": "1"}, clear=True
+        ),
+        patch("dotenv.load_dotenv"),  # belt & suspenders
+    ):
+        import importlib
+
+        import cli
+
+        importlib.reload(cli)
         result = runner.invoke(
-            app,
+            cli.app,
             [
                 "reconcile",
                 "--item-id",
@@ -751,9 +855,19 @@ def test_reconcile_balances_json_file_not_found(tmp_path: Path) -> None:
     out_json = tmp_path / "recon.json"
 
     # Run CLI command
-    with patch.dict("os.environ", {"DATABASE_URL": db_url}, clear=True):
+    with (
+        patch.dict(
+            "os.environ", {"DATABASE_URL": db_url, "PFETL_SKIP_DOTENV": "1"}, clear=True
+        ),
+        patch("dotenv.load_dotenv"),
+    ):
+        import importlib
+
+        import cli
+
+        importlib.reload(cli)
         result = runner.invoke(
-            app,
+            cli.app,
             [
                 "reconcile",
                 "--item-id",
@@ -789,9 +903,19 @@ def test_reconcile_balances_json_invalid_format(tmp_path: Path) -> None:
     out_json = tmp_path / "recon.json"
 
     # Run CLI command
-    with patch.dict("os.environ", {"DATABASE_URL": db_url}, clear=True):
+    with (
+        patch.dict(
+            "os.environ", {"DATABASE_URL": db_url, "PFETL_SKIP_DOTENV": "1"}, clear=True
+        ),
+        patch("dotenv.load_dotenv"),
+    ):
+        import importlib
+
+        import cli
+
+        importlib.reload(cli)
         result = runner.invoke(
-            app,
+            cli.app,
             [
                 "reconcile",
                 "--item-id",
@@ -825,9 +949,19 @@ def test_reconcile_requires_out_parameter(tmp_path: Path) -> None:
     balances_json.write_text(json.dumps({"plaid_test": 100.00}))
 
     # Run CLI command without --out parameter
-    with patch.dict("os.environ", {"DATABASE_URL": db_url}, clear=True):
+    with (
+        patch.dict(
+            "os.environ", {"DATABASE_URL": db_url, "PFETL_SKIP_DOTENV": "1"}, clear=True
+        ),
+        patch("dotenv.load_dotenv"),
+    ):
+        import importlib
+
+        import cli
+
+        importlib.reload(cli)
         result = runner.invoke(
-            app,
+            cli.app,
             [
                 "reconcile",
                 "--item-id",
@@ -891,9 +1025,19 @@ def test_reconcile_no_mapped_cash_accounts(tmp_path: Path) -> None:
     out_json = tmp_path / "recon.json"
 
     # Run CLI command
-    with patch.dict("os.environ", {"DATABASE_URL": db_url}, clear=True):
+    with (
+        patch.dict(
+            "os.environ", {"DATABASE_URL": db_url, "PFETL_SKIP_DOTENV": "1"}, clear=True
+        ),
+        patch("dotenv.load_dotenv"),
+    ):
+        import importlib
+
+        import cli
+
+        importlib.reload(cli)
         result = runner.invoke(
-            app,
+            cli.app,
             [
                 "reconcile",
                 "--item-id",
@@ -972,13 +1116,23 @@ def test_reconcile_live_mode_missing_balance_for_mapped_cash_fails(
     with (
         patch.dict(
             "os.environ",
-            {"DATABASE_URL": db_url, "PLAID_ACCESS_TOKEN": "fake_token"},
+            {
+                "DATABASE_URL": db_url,
+                "PLAID_ACCESS_TOKEN": "fake_token",
+                "PFETL_SKIP_DOTENV": "1",
+            },
             clear=True,
         ),
+        patch("dotenv.load_dotenv"),  # belt & suspenders
         patch("etl.extract.fetch_accounts", side_effect=mock_fetch_accounts),
     ):
+        import importlib
+
+        import cli
+
+        importlib.reload(cli)
         result = runner.invoke(
-            app,
+            cli.app,
             [
                 "reconcile",
                 "--item-id",
@@ -1024,11 +1178,19 @@ def test_list_accounts_fails_without_scoping_source(tmp_path: Path) -> None:
 
     # Run CLI command
     with (
-        patch.dict("os.environ", {"DATABASE_URL": db_url}, clear=True),
+        patch.dict(
+            "os.environ", {"DATABASE_URL": db_url, "PFETL_SKIP_DOTENV": "1"}, clear=True
+        ),
+        patch("dotenv.load_dotenv"),  # belt & suspenders
         patch("etl.extract.fetch_accounts", side_effect=mock_fetch_accounts_fail),
     ):
+        import importlib
+
+        import cli
+
+        importlib.reload(cli)
         result = runner.invoke(
-            app,
+            cli.app,
             [
                 "list-plaid-accounts",
                 "--item-id",
@@ -1044,8 +1206,10 @@ def test_list_accounts_fails_without_scoping_source(tmp_path: Path) -> None:
 
 def test_list_accounts_help_shows_required_item_option() -> None:
     """Test that list-plaid-accounts help shows --item-id as required."""
+    import cli
+
     result = runner.invoke(
-        app,
+        cli.app,
         ["list-plaid-accounts", "--help"],
     )
 
@@ -1055,3 +1219,76 @@ def test_list_accounts_help_shows_required_item_option() -> None:
     assert re.search(r"--item-id.*\[required\]", result.output), (
         "Help should show --item-id as required"
     )
+
+
+def test_cli_respects_skip_dotenv_env(tmp_path: Path) -> None:
+    """Test CLI respects PFETL_SKIP_DOTENV=1 and doesn't load .env file."""
+    db_file = tmp_path / "test.db"
+    db_url = f"sqlite:///{db_file}"
+
+    with (
+        patch.dict(
+            "os.environ", {"DATABASE_URL": db_url, "PFETL_SKIP_DOTENV": "1"}, clear=True
+        ),
+        patch("dotenv.load_dotenv") as mock_load_dotenv,
+    ):
+        import importlib
+
+        import cli  # import here so env & patch apply
+
+        importlib.reload(cli)
+        result = runner.invoke(
+            cli.app, ["--help"]
+        )  # triggers app callback, no DB side effects
+
+    # Should succeed without loading .env
+    assert result.exit_code == 0
+    # Verify load_dotenv was never called
+    mock_load_dotenv.assert_not_called()
+
+
+def test_live_mode_without_token_never_calls_fetch(tmp_path: Path) -> None:
+    """Test --use-plaid-live without token fails fast and never calls fetch_accounts."""
+    db_file = tmp_path / "test.db"
+    db_url = f"sqlite:///{db_file}"
+
+    # Setup minimal schema
+    engine = create_engine(db_url)
+    with engine.begin() as conn:
+        _create_test_schema_with_period(conn)
+
+    out_json = tmp_path / "recon.json"
+
+    with (
+        patch.dict(
+            "os.environ", {"DATABASE_URL": db_url, "PFETL_SKIP_DOTENV": "1"}, clear=True
+        ),
+        patch("dotenv.load_dotenv"),
+        patch("etl.extract.fetch_accounts") as mock_fetch,  # patch where cli calls
+    ):
+        import importlib
+
+        import cli
+
+        importlib.reload(cli)
+        result = runner.invoke(
+            cli.app,
+            [
+                "reconcile",
+                "--item-id",
+                "item_TEST",
+                "--period",
+                "2024Q1",
+                "--use-plaid-live",
+                "--out",
+                str(out_json),
+            ],
+        )
+
+    # Should fail fast with exit code 1 (operational failure)
+    assert result.exit_code == 1
+    assert "PLAID_ACCESS_TOKEN not set in environment" in result.output
+    # Verify fetch_accounts was never called (fail-fast behavior)
+    mock_fetch.assert_not_called()
+    # Fail-fast means no output file created
+    assert not out_json.exists()
