@@ -64,6 +64,7 @@ def test_loader_resolves_account_fk() -> None:
                 currency TEXT NOT NULL,
                 source_hash TEXT NOT NULL,
                 transform_version INTEGER NOT NULL,
+                item_id TEXT,
                 ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -192,7 +193,8 @@ def test_loader_fails_on_unmapped_account() -> None:
                 description TEXT NOT NULL,
                 currency TEXT NOT NULL,
                 source_hash TEXT NOT NULL,
-                transform_version INTEGER NOT NULL
+                transform_version INTEGER NOT NULL,
+                item_id TEXT
             )
         """)
         )
@@ -313,7 +315,8 @@ def test_loader_plaid_account_mapping_required() -> None:
                 description TEXT NOT NULL,
                 currency TEXT NOT NULL,
                 source_hash TEXT NOT NULL,
-                transform_version INTEGER NOT NULL
+                transform_version INTEGER NOT NULL,
+                item_id TEXT
             )
         """)
         )
@@ -432,7 +435,8 @@ def test_loader_handles_auto_create_accounts_env() -> None:
                 description TEXT NOT NULL,
                 currency TEXT NOT NULL,
                 source_hash TEXT NOT NULL,
-                transform_version INTEGER NOT NULL
+                transform_version INTEGER NOT NULL,
+                item_id TEXT
             )
         """)
         )

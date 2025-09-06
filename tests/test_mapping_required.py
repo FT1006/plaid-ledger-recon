@@ -61,6 +61,7 @@ def test_missing_gl_account_fails_fast() -> None:
                 currency TEXT NOT NULL,
                 source_hash TEXT NOT NULL,
                 transform_version INTEGER NOT NULL,
+                item_id TEXT,
                 ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -201,7 +202,8 @@ def test_plaid_account_missing_link_scenario() -> None:
                 description TEXT NOT NULL,
                 currency TEXT NOT NULL,
                 source_hash TEXT NOT NULL,
-                transform_version INTEGER NOT NULL
+                transform_version INTEGER NOT NULL,
+                item_id TEXT
             )
         """)
         )
@@ -356,7 +358,8 @@ def test_error_message_includes_env_hint() -> None:
                 description TEXT NOT NULL,
                 currency TEXT NOT NULL,
                 source_hash TEXT NOT NULL,
-                transform_version INTEGER NOT NULL
+                transform_version INTEGER NOT NULL,
+                item_id TEXT
             )
         """)
         )
@@ -452,7 +455,8 @@ def test_multiple_missing_accounts_first_error_wins() -> None:
                 description TEXT NOT NULL,
                 currency TEXT NOT NULL,
                 source_hash TEXT NOT NULL,
-                transform_version INTEGER NOT NULL
+                transform_version INTEGER NOT NULL,
+                item_id TEXT
             )
         """)
         )
@@ -563,7 +567,8 @@ def test_missing_lineage_fails_load(
                 description TEXT NOT NULL,
                 currency TEXT NOT NULL,
                 source_hash TEXT,  -- Allow NULL for loader validation
-                transform_version INTEGER  -- Allow NULL for loader validation
+                transform_version INTEGER,  -- Allow NULL for loader validation
+                item_id TEXT
             )
         """)
         )

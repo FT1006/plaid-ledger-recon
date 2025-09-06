@@ -38,7 +38,8 @@ def _seed_minimal_gl(db_url: str) -> None:
                     description TEXT NOT NULL,
                     currency TEXT NOT NULL,
                     source_hash TEXT NOT NULL,
-                    transform_version INTEGER NOT NULL
+                    transform_version INTEGER NOT NULL,
+                    item_id TEXT
                 )
                 """
             )

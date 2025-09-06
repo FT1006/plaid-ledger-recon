@@ -93,18 +93,22 @@ def check_cash_variance(
 
     # AS-OF GL ending balance per mapped cash account (item-scoped)
     query = text("""
-        SELECT al.plaid_account_id,
+        WITH mapped_cash AS (
+            SELECT al.plaid_account_id, al.account_id
+            FROM account_links al
+            JOIN accounts a ON a.id = al.account_id AND a.is_cash = true
+        )
+        SELECT mc.plaid_account_id,
                COALESCE(SUM(CASE
                    WHEN jl.side = 'debit' THEN jl.amount
                    ELSE -jl.amount
                END), 0) as gl_asof
-        FROM account_links al
-        JOIN accounts a ON a.id = al.account_id AND a.is_cash = true
-        LEFT JOIN journal_lines jl ON jl.account_id = a.id
+        FROM mapped_cash mc
+        LEFT JOIN journal_lines jl ON jl.account_id = mc.account_id
         LEFT JOIN journal_entries je ON je.id = jl.entry_id
-        WHERE (:item_id IS NULL OR je.item_id = :item_id)
+        WHERE (:item_id IS NULL OR je.item_id = :item_id OR je.item_id IS NULL)
           AND (je.txn_date IS NULL OR je.txn_date <= :period_end)
-        GROUP BY al.plaid_account_id
+        GROUP BY mc.plaid_account_id
     """)
 
     gl_results = conn.execute(
@@ -145,6 +149,7 @@ def check_cash_variance(
     return {
         "passed": total_variance_rounded <= tolerance,
         "total_variance": float(total_variance),
+        "variance": float(total_variance),  # Backward compatibility
         "tolerance": float(tolerance),
         "by_account": by_account,
     }
@@ -186,6 +191,24 @@ def check_lineage_presence(
     return {"passed": missing_count == 0, "missing_lineage": missing_count}
 
 
+def get_mapped_cash_accounts(conn: Connection) -> set[str]:
+    """Get all plaid_account_ids for mapped cash accounts.
+
+    Args:
+        conn: Database connection
+
+    Returns:
+        Set of plaid_account_ids that are mapped to cash accounts
+    """
+    query = text("""
+        SELECT DISTINCT al.plaid_account_id
+        FROM account_links al
+        JOIN accounts a ON a.id = al.account_id
+        WHERE a.is_cash = true
+    """)
+    return {row[0] for row in conn.execute(query).fetchall()}
+
+
 def check_coverage(
     conn: Connection, _item_id: str | None, plaid_balances: dict[str, float]
 ) -> dict[str, Any]:
@@ -200,14 +223,7 @@ def check_coverage(
         Check result with passed status, missing accounts, and ignored extras
     """
     # Get all mapped cash accounts (required coverage)
-    query = text("""
-        SELECT DISTINCT al.plaid_account_id
-        FROM account_links al
-        JOIN accounts a ON a.id = al.account_id
-        WHERE a.is_cash = true
-    """)
-
-    required = {row[0] for row in conn.execute(query).fetchall()}
+    required = get_mapped_cash_accounts(conn)
     provided = set(plaid_balances.keys())
 
     # Find missing and extra accounts
@@ -215,9 +231,10 @@ def check_coverage(
     extras_ignored = sorted(provided - required)
 
     return {
-        "passed": len(missing) == 0,  # Only fail on missing, ignore extras
+        "passed": len(missing) == 0
+        and len(extras_ignored) == 0,  # Fail on both missing and extra
         "missing": missing,
-        "extras_ignored": extras_ignored,  # Diagnostics only, no failure
+        "extra": extras_ignored,  # Keep original field name
     }
 
 

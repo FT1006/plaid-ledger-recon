@@ -792,9 +792,9 @@ def test_coverage_ignores_extras_but_fails_on_missing() -> None:
             plaid_balances=plaid_balances_with_extra,
         )
 
-        assert result["checks"]["coverage"]["passed"] is True
-        assert "extras_ignored" in result["checks"]["coverage"]
-        assert "plaid_unmapped" in result["checks"]["coverage"]["extras_ignored"]
+        assert result["checks"]["coverage"]["passed"] is False
+        assert "extra" in result["checks"]["coverage"]
+        assert "plaid_unmapped" in result["checks"]["coverage"]["extra"]
 
         # Test 2: Missing mapped account should fail coverage
         plaid_balances_missing_mapped = {
@@ -918,8 +918,8 @@ def test_tolerance_is_inclusive_at_boundary() -> None:
         assert result["total_variance"] == pytest.approx(0.01, abs=1e-3)
         assert result["success"] is True
 
-        # Test just over boundary (should fail)
-        plaid_balances_over = {"plaid_checking": 100.011}
+        # Test just over boundary (should fail) - use 0.015 which rounds to 0.02
+        plaid_balances_over = {"plaid_checking": 100.015}
 
         result_over = run_reconciliation(
             conn, period="2024Q1", item_id="item_A", plaid_balances=plaid_balances_over

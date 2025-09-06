@@ -40,6 +40,7 @@ def test_journal_lines_fk_enforced() -> None:
                 currency TEXT NOT NULL,
                 source_hash TEXT NOT NULL,
                 transform_version INTEGER NOT NULL,
+                item_id TEXT,
                 ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -245,7 +246,8 @@ def test_journal_lines_amount_check_constraint() -> None:
                 description TEXT NOT NULL,
                 currency TEXT NOT NULL,
                 source_hash TEXT NOT NULL,
-                transform_version INTEGER NOT NULL
+                transform_version INTEGER NOT NULL,
+                item_id TEXT
             )
         """)
         )
@@ -337,7 +339,8 @@ def test_journal_lines_invalid_side_value() -> None:
                 description TEXT NOT NULL,
                 currency TEXT NOT NULL,
                 source_hash TEXT NOT NULL,
-                transform_version INTEGER NOT NULL
+                transform_version INTEGER NOT NULL,
+                item_id TEXT
             )
         """)
         )
@@ -412,6 +415,7 @@ def test_journal_entries_txn_id_uniqueness() -> None:
                 currency TEXT NOT NULL,
                 source_hash TEXT NOT NULL,
                 transform_version INTEGER NOT NULL,
+                item_id TEXT,
                 ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -470,7 +474,8 @@ def test_journal_lines_entry_id_fk_enforced() -> None:
                 description TEXT NOT NULL,
                 currency TEXT NOT NULL,
                 source_hash TEXT NOT NULL,
-                transform_version INTEGER NOT NULL
+                transform_version INTEGER NOT NULL,
+                item_id TEXT
             )
         """)
         )
@@ -665,6 +670,7 @@ def test_journal_entries_required_fields() -> None:
                 currency TEXT NOT NULL,
                 source_hash TEXT NOT NULL,
                 transform_version INTEGER NOT NULL,
+                item_id TEXT,
                 ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)

@@ -33,7 +33,8 @@ def test_entry_balance_filters_by_period() -> None:
                 description TEXT NOT NULL,
                 currency TEXT NOT NULL,
                 source_hash TEXT NOT NULL,
-                transform_version INTEGER NOT NULL
+                transform_version INTEGER NOT NULL,
+                item_id TEXT
             )
         """)
         )
@@ -220,7 +221,8 @@ def test_cash_variance_filters_by_period() -> None:
                 description TEXT NOT NULL,
                 currency TEXT NOT NULL,
                 source_hash TEXT NOT NULL,
-                transform_version INTEGER NOT NULL
+                transform_version INTEGER NOT NULL,
+                item_id TEXT
             )
         """)
         )
@@ -411,7 +413,8 @@ def test_lineage_presence_filters_by_period() -> None:
                 description TEXT NOT NULL,
                 currency TEXT NOT NULL,
                 source_hash TEXT,  -- Allow NULL
-                transform_version INTEGER  -- Allow NULL
+                transform_version INTEGER,  -- Allow NULL
+                item_id TEXT
             )
         """)
         )

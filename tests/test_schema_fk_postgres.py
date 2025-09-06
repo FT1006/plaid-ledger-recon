@@ -58,6 +58,7 @@ def test_postgres_journal_lines_fk_enforced() -> None:
                     currency CHAR(3) NOT NULL,
                     source_hash TEXT NOT NULL,
                     transform_version INTEGER NOT NULL,
+                    item_id TEXT,
                     ingested_at TIMESTAMPTZ DEFAULT NOW()
                 )
             """)
@@ -187,7 +188,8 @@ def test_postgres_account_links_cascade_behavior() -> None:
                     description TEXT NOT NULL,
                     currency CHAR(3) NOT NULL,
                     source_hash TEXT NOT NULL,
-                    transform_version INTEGER NOT NULL
+                    transform_version INTEGER NOT NULL,
+                    item_id TEXT
                 )
             """)
             )
@@ -323,7 +325,8 @@ def test_postgres_check_constraints_and_enums() -> None:
                     description       TEXT NOT NULL,
                     currency          CHAR(3) NOT NULL,
                     source_hash       TEXT NOT NULL,
-                    transform_version INTEGER NOT NULL
+                    transform_version INTEGER NOT NULL,
+                    item_id           TEXT
                 );
             """)
             )
@@ -430,6 +433,7 @@ def test_postgres_uuid_and_timestamptz() -> None:
                     currency CHAR(3) NOT NULL,
                     source_hash TEXT NOT NULL,
                     transform_version INTEGER NOT NULL,
+                    item_id TEXT,
                     ingested_at TIMESTAMPTZ DEFAULT NOW()
                 )
             """)

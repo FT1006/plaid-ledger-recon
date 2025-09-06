@@ -33,7 +33,8 @@ def test_reconcile_success_zero_variance_and_balanced() -> None:
                 description TEXT NOT NULL,
                 currency TEXT NOT NULL,
                 source_hash TEXT NOT NULL,
-                transform_version INTEGER NOT NULL
+                transform_version INTEGER NOT NULL,
+                item_id TEXT
             )
         """)
         )
@@ -158,7 +159,8 @@ def test_reconcile_fails_on_unbalanced_entries() -> None:
                 description TEXT NOT NULL,
                 currency TEXT NOT NULL,
                 source_hash TEXT NOT NULL,
-                transform_version INTEGER NOT NULL
+                transform_version INTEGER NOT NULL,
+                item_id TEXT
             )
         """)
         )
@@ -261,7 +263,8 @@ def test_reconcile_fails_on_cash_ledger_variance() -> None:
                 description TEXT NOT NULL,
                 currency TEXT NOT NULL,
                 source_hash TEXT NOT NULL,
-                transform_version INTEGER NOT NULL
+                transform_version INTEGER NOT NULL,
+                item_id TEXT
             )
         """)
         )
@@ -387,7 +390,8 @@ def test_lineage_presence_gate() -> None:
                 description TEXT NOT NULL,
                 currency TEXT NOT NULL,
                 source_hash TEXT,  -- Allow NULL for test
-                transform_version INTEGER  -- Allow NULL for test
+                transform_version INTEGER,  -- Allow NULL for test
+                item_id TEXT
             )
         """)
         )

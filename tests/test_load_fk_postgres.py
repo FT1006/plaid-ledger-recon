@@ -79,6 +79,7 @@ def test_postgres_loader_resolves_account_fk() -> None:
                     currency CHAR(3) NOT NULL,
                     source_hash TEXT NOT NULL,
                     transform_version INTEGER NOT NULL,
+                    item_id TEXT,
                     ingested_at TIMESTAMPTZ DEFAULT NOW()
                 )
             """)
@@ -249,6 +250,7 @@ def test_postgres_loader_fails_on_unmapped_code() -> None:
                     currency CHAR(3) NOT NULL,
                     source_hash TEXT NOT NULL,
                     transform_version INTEGER NOT NULL,
+                    item_id TEXT,
                     ingested_at TIMESTAMPTZ DEFAULT NOW()
                 )
             """)
@@ -366,7 +368,8 @@ def test_postgres_loader_env_var_behavior() -> None:
                     description TEXT NOT NULL,
                     currency CHAR(3) NOT NULL,
                     source_hash TEXT NOT NULL,
-                    transform_version INTEGER NOT NULL
+                    transform_version INTEGER NOT NULL,
+                    item_id TEXT
                 )
             """)
             )
