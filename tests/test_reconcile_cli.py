@@ -359,22 +359,47 @@ def test_cli_reconcile_coverage_failure_records_event(tmp_path: Path) -> None:
     db_file = tmp_path / "test.db"
     db_url = f"sqlite:///{db_file}"
 
-    # Setup schema and minimal data (but no account mappings)
+    # Setup schema and data with mapped cash account missing from balances
     engine = create_engine(db_url)
     with engine.begin() as conn:
         _create_test_schema_with_period(conn)
 
-        # Only create accounts, no mappings
+        # Create cash + non-cash accounts
         conn.execute(
             text("""
             INSERT INTO accounts (id, code, name, type, is_cash) VALUES
-                (1, 'Assets:Bank:Checking', 'Checking', 'asset', 1)
+                (1, 'Assets:Bank:Checking', 'Checking', 'asset', 1),
+                (2, 'Expenses:Other', 'Other', 'expense', 0)
         """)
         )
 
-    # Create balances JSON with unmapped account
+        # Create plaid accounts
+        conn.execute(
+            text("""
+            INSERT INTO plaid_accounts (plaid_account_id, name, type, subtype, currency)
+            VALUES
+                ('plaid_checking', 'Checking', 'depository', 'checking', 'USD'),
+                ('plaid_credit', 'CC', 'credit', 'credit_card', 'USD')
+        """)
+        )
+
+        # Map both: cash account becomes required, non-cash ignored for coverage
+        conn.execute(
+            text("""
+            INSERT INTO account_links (plaid_account_id, account_id) VALUES
+                ('plaid_checking', 1),
+                ('plaid_credit', 2)
+        """)
+        )
+
+    # balances.json omits the required cash account; includes only extras
     balances_json = tmp_path / "balances.json"
-    balances_json.write_text(json.dumps({"plaid_unmapped": 100.00}))
+    balances_json.write_text(
+        json.dumps({
+            "plaid_unmapped": 123.45,  # unknown: extra → ignored
+            "plaid_credit": -50.00,  # mapped non-cash: extra → ignored
+        })
+    )
 
     # Output file for reconciliation
     out_json = tmp_path / "recon.json"
@@ -422,6 +447,12 @@ def test_cli_reconcile_coverage_failure_records_event(tmp_path: Path) -> None:
             "ETL event should be recorded even on coverage failure"
         )
         assert bool(event[0]) is False  # success=FALSE
+
+        # Validate coverage failure details
+        diag = json.loads(event[1])
+        assert diag["checks"]["coverage"]["passed"] is False
+        assert "missing" in diag["checks"]["coverage"]
+        assert "plaid_checking" in diag["checks"]["coverage"]["missing"]
 
         # Verify row_counts is valid JSON (minimal check)
         row_counts = json.loads(event[1])

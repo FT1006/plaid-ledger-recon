@@ -45,7 +45,9 @@ def _mark_error() -> str:
 
 @app.callback()
 def _load_env() -> None:
-    load_dotenv()
+    # Skip dotenv loading in tests/CI for hermetic environments
+    if os.getenv("PFETL_SKIP_DOTENV") != "1":
+        load_dotenv(override=False)  # Never override already-set env in CI/tests
 
 
 def _parse_date(value: str) -> date:
@@ -62,7 +64,7 @@ def _parse_date(value: str) -> date:
 @app.command("init-db")
 def init_db() -> None:
     """Initialize database schema from etl/schema.sql."""
-    load_dotenv()
+    _load_env()
 
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
@@ -154,7 +156,7 @@ def ingest(
         raise typer.Exit(1)
 
     # Check environment
-    load_dotenv()
+    _load_env()
     access_token = os.getenv("PLAID_ACCESS_TOKEN")
     if not access_token:
         typer.echo(
@@ -257,12 +259,15 @@ def _load_live_plaid_balances(access_token: str | None) -> dict[str, float]:
 
 
 def _determine_balances(
-    balances_json: str | None, access_token: str | None
+    balances_json: str | None, use_plaid_live: bool, access_token: str | None
 ) -> dict[str, float]:
     """Determine balances source: override file (demo/CI) or live Plaid."""
     if balances_json:
         return _load_balances_from_json(balances_json)
-    return _load_live_plaid_balances(access_token)
+    if use_plaid_live:
+        return _load_live_plaid_balances(access_token)
+    msg = "No balance source specified"  # Should never reach here due to validation
+    raise RuntimeError(msg)
 
 
 def _run_reconciliation_with_db(
@@ -359,9 +364,34 @@ def reconcile(
             ),
         ),
     ] = None,
+    use_plaid_live: Annotated[
+        bool,
+        typer.Option(
+            "--use-plaid-live",
+            help="Use live Plaid API balances (production mode)",
+        ),
+    ] = False,
 ) -> None:
     """Run reconciliation checks and generate recon.json."""
-    load_dotenv()
+    _load_env()
+
+    # Validate one-of rule: exactly one balance source required
+    has_json = balances_json is not None
+    has_live = use_plaid_live
+
+    if not has_json and not has_live:
+        typer.echo("Usage: pfetl reconcile [OPTIONS]", err=True)
+        typer.echo(
+            "Provide exactly one of --balances-json or --use-plaid-live.", err=True
+        )
+        raise typer.Exit(2)
+
+    if has_json and has_live:
+        typer.echo("Usage: pfetl reconcile [OPTIONS]", err=True)
+        typer.echo(
+            "Provide exactly one of --balances-json or --use-plaid-live.", err=True
+        )
+        raise typer.Exit(2)
 
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
@@ -389,11 +419,6 @@ def reconcile(
                         f"Missing balance data for accounts: {missing_accounts}",
                         err=True,
                     )
-                if coverage.get("extra"):
-                    typer.echo(
-                        f"Extra accounts in balances: {', '.join(coverage['extra'])}",
-                        err=True,
-                    )
 
         typer.echo(f"Details written to {out}", err=True)
         raise typer.Exit(1)
@@ -403,7 +428,9 @@ def reconcile(
 
     try:
         # Determine balances source and run reconciliation
-        plaid_balances = _determine_balances(balances_json, access_token)
+        plaid_balances = _determine_balances(
+            balances_json, use_plaid_live, access_token
+        )
         result = _run_reconciliation_with_db(
             database_url, period, item_id, plaid_balances, out
         )

@@ -113,15 +113,19 @@ def check_cash_variance(
 
     gl_balances = {row[0]: Decimal(str(row[1])) for row in gl_results}
 
+    # Only compute variance for mapped cash accounts (intersection)
+    mapped_cash_accounts = set(gl_balances.keys())
+    usable_accounts = mapped_cash_accounts & set(plaid_balances.keys())
+
     # Build by_account breakdown and calculate total variance
     total_variance = Decimal("0.00")
     tolerance = Decimal("0.01")
     by_account = []
 
-    # Compare GL vs external balances for each account in plaid_balances
-    for plaid_id, plaid_balance in plaid_balances.items():
+    # Compare GL vs external balances only for usable accounts
+    for plaid_id in usable_accounts:
         gl_asof = gl_balances.get(plaid_id, Decimal("0.00"))
-        ext_asof = Decimal(str(plaid_balance))
+        ext_asof = Decimal(str(plaid_balances[plaid_id]))
 
         # Calculate account-level variance (absolute difference)
         account_variance = abs(gl_asof - ext_asof)
@@ -134,11 +138,12 @@ def check_cash_variance(
             "variance": float(account_variance),
         })
 
-    # Round to 2 decimal places for stable comparison
-    total_variance = total_variance.quantize(Decimal("0.01"))
+    # Keep precision for accurate variance calculation
+    # Only quantize for comparison, not for the return value
+    total_variance_rounded = total_variance.quantize(Decimal("0.01"))
 
     return {
-        "passed": total_variance <= tolerance,
+        "passed": total_variance_rounded <= tolerance,
         "total_variance": float(total_variance),
         "tolerance": float(tolerance),
         "by_account": by_account,
@@ -192,9 +197,9 @@ def check_coverage(
         plaid_balances: Dict of plaid_account_id to balance
 
     Returns:
-        Check result with passed status, missing accounts, and extra accounts
+        Check result with passed status, missing accounts, and ignored extras
     """
-    # Get all mapped cash accounts
+    # Get all mapped cash accounts (required coverage)
     query = text("""
         SELECT DISTINCT al.plaid_account_id
         FROM account_links al
@@ -202,18 +207,17 @@ def check_coverage(
         WHERE a.is_cash = true
     """)
 
-    mapped_accounts = {row[0] for row in conn.execute(query).fetchall()}
-
-    provided_accounts = set(plaid_balances.keys())
+    required = {row[0] for row in conn.execute(query).fetchall()}
+    provided = set(plaid_balances.keys())
 
     # Find missing and extra accounts
-    missing = list(mapped_accounts - provided_accounts)
-    extra = list(provided_accounts - mapped_accounts)
+    missing = sorted(required - provided)
+    extras_ignored = sorted(provided - required)
 
     return {
-        "passed": len(missing) == 0 and len(extra) == 0,
+        "passed": len(missing) == 0,  # Only fail on missing, ignore extras
         "missing": missing,
-        "extra": extra,
+        "extras_ignored": extras_ignored,  # Diagnostics only, no failure
     }
 
 
