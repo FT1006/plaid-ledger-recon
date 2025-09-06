@@ -166,7 +166,7 @@ def test_reconcile_coverage_rule_missing_account() -> None:
         }
 
         # This should fail with coverage rule violation
-        result = run_reconciliation(  # type: ignore[call-arg]
+        result = run_reconciliation(
             conn, period="2024Q1", item_id="item_A", plaid_balances=plaid_balances
         )
 
@@ -242,7 +242,7 @@ def test_reconcile_item_scoped_filtering() -> None:
         }
 
         # Reconcile for item_A only
-        result = run_reconciliation(  # type: ignore[call-arg]
+        result = run_reconciliation(
             conn,
             period="2024Q1",
             item_id="item_A",  # Should only see 75.00
@@ -330,7 +330,7 @@ def test_reconcile_cash_only_filter() -> None:
             # plaid_receivables is missing but shouldn't matter (non-cash)
         }
 
-        result = run_reconciliation(  # type: ignore[call-arg]
+        result = run_reconciliation(
             conn, period="2024Q1", item_id="item_A", plaid_balances=plaid_balances
         )
 
@@ -408,7 +408,7 @@ def test_reconcile_by_account_breakdown() -> None:
         # Exact matches for successful reconciliation
         plaid_balances = {"plaid_checking": 150.00, "plaid_savings": 250.00}
 
-        result = run_reconciliation(  # type: ignore[call-arg]
+        result = run_reconciliation(
             conn, period="2024Q1", item_id="item_A", plaid_balances=plaid_balances
         )
 
@@ -449,74 +449,9 @@ def test_reconcile_by_account_breakdown() -> None:
         assert result["total_variance"] == pytest.approx(0.00, abs=1e-2)
 
 
-def test_reconcile_etl_event_written() -> None:
-    """Test that reconciliation writes proper etl_events row."""
-    engine = create_engine("sqlite:///:memory:")
-
-    with engine.begin() as conn:
-        _create_test_schema(conn)
-
-        # Minimal setup for successful reconciliation
-        conn.execute(
-            text("""
-            INSERT INTO accounts (id, code, name, type, is_cash) VALUES
-                (1, 'Assets:Bank:Checking', 'Checking', 'asset', 1),
-                (2, 'Expenses:Other', 'Other', 'expense', 0)
-        """)
-        )
-
-        conn.execute(
-            text("""
-            INSERT INTO plaid_accounts (plaid_account_id, name, type, subtype, currency)
-            VALUES('plaid_checking', 'Checking', 'depository', 'checking', 'USD')
-        """)
-        )
-
-        conn.execute(
-            text("""
-            INSERT INTO account_links (plaid_account_id, account_id)
-            VALUES('plaid_checking', 1)
-        """)
-        )
-
-        conn.execute(
-            text("""
-            INSERT INTO journal_entries (id, txn_id, txn_date, description, currency,
-                                        source_hash, transform_version, item_id)
-            VALUES(1, 'txn-001', '2024-01-15', 'Test', 'USD', 'hash1', 1, 'item_TEST')
-        """)
-        )
-
-        conn.execute(
-            text("""
-            INSERT INTO journal_lines (entry_id, account_id, side, amount) VALUES
-                (1, 1, 'debit', 100.00),
-                (1, 2, 'credit', 100.00)
-        """)
-        )
-
-        plaid_balances = {"plaid_checking": 100.00}
-
-        # Run reconciliation
-        run_reconciliation(  # type: ignore[call-arg]
-            conn, period="2024Q1", item_id="item_TEST", plaid_balances=plaid_balances
-        )
-
-        # Check that etl_events was written
-        event = conn.execute(
-            text("""
-            SELECT event_type, item_id, period, success, row_counts
-            FROM etl_events
-            WHERE event_type = 'reconcile'
-        """)
-        ).fetchone()
-
-        assert event is not None
-        assert event[0] == "reconcile"  # event_type
-        assert event[1] == "item_TEST"  # item_id
-        assert event[2] == "2024Q1"  # period
-        assert bool(event[3]) is True  # success (handle SQLite integer boolean)
-        assert event[4] is not None  # row_counts should be populated
+# NOTE: test_reconcile_etl_event_written removed per ADR v1.3.0
+# run_reconciliation() is now pure (no side effects)
+# ETL event writing is CLI responsibility - see tests/test_reconcile_cli.py
 
 
 def test_reconcile_asof_ending_balance_cumulative() -> None:
@@ -593,7 +528,7 @@ def test_reconcile_asof_ending_balance_cumulative() -> None:
             "plaid_checking": 100.00  # Cumulative through March
         }
 
-        result = run_reconciliation(  # type: ignore[call-arg]
+        result = run_reconciliation(
             conn, period="2024Q1", item_id="item_A", plaid_balances=plaid_balances
         )
 
@@ -757,7 +692,7 @@ def test_reconcile_coverage_rule_extra_account() -> None:
             "plaid_unmapped": 50.00,  # EXTRA - not mapped
         }
 
-        result = run_reconciliation(  # type: ignore[call-arg]
+        result = run_reconciliation(
             conn, period="2024Q1", item_id="item_A", plaid_balances=plaid_balances
         )
 
@@ -820,7 +755,7 @@ def test_reconcile_variance_within_tolerance() -> None:
             "plaid_checking": 100.005  # 0.005 variance < 0.01 tolerance
         }
 
-        result = run_reconciliation(  # type: ignore[call-arg]
+        result = run_reconciliation(
             conn, period="2024Q1", item_id="item_A", plaid_balances=plaid_balances
         )
 
@@ -898,7 +833,7 @@ def test_reconcile_coverage_all_good() -> None:
         # JSON with EXACT match to mapped cash accounts
         plaid_balances = {"plaid_checking": 150.00, "plaid_savings": 75.00}
 
-        result = run_reconciliation(  # type: ignore[call-arg]
+        result = run_reconciliation(
             conn, period="2024Q1", item_id="item_A", plaid_balances=plaid_balances
         )
 
@@ -961,7 +896,7 @@ def test_reconcile_rounding_edge_case() -> None:
             "plaid_checking": 100.004  # Should round to 100.00 and pass
         }
 
-        result = run_reconciliation(  # type: ignore[call-arg]
+        result = run_reconciliation(
             conn, period="2024Q1", item_id="item_A", plaid_balances=plaid_balances
         )
 

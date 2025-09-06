@@ -121,6 +121,7 @@ CREATE TABLE IF NOT EXISTS etl_events (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   event_type   TEXT        NOT NULL,         -- extract|transform|load|reconcile
   item_id      TEXT,
+  period       TEXT,                         -- nullable for non-period ops (e.g., 2024Q1)
   input_hash   BYTEA,
   row_counts   JSONB,
   started_at   TIMESTAMPTZ,
