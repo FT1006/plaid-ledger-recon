@@ -76,10 +76,18 @@ pfetl map-account --plaid-account-id <MONEY_MARKET_ID> --gl-code "Assets:Bank:Mo
 # Continue for all depository accounts shown by list-plaid-accounts
 
 make demo-balances             # writes build/demo_balances.json (as-of PERIOD_END)
+
+# Deterministic mode (demo/CI) - uses JSON file for reproducible results
 pfetl reconcile --item-id $PLAID_ITEM_ID --period 2024Q1 \
   --balances-json build/demo_balances.json \
   --out build/recon.json
-# Reconciliation compares GL ending balances to ending balances in build/demo_balances.json for all mapped cash accounts
+
+# OR Production mode - uses live Plaid API balances (non-deterministic)  
+# pfetl reconcile --item-id $PLAID_ITEM_ID --period 2024Q1 \
+#   --use-plaid-live \
+#   --out build/recon.json
+
+# Reconciliation compares GL ending balances to external balances for all mapped cash accounts
 pfetl report --item-id $PLAID_ITEM_ID --period 2024Q1 --formats html --out build/
 ```
 
@@ -87,6 +95,9 @@ See [docs/ONBOARDING.md](docs/ONBOARDING.md) for detailed setup and [docs/CLI_EX
 
 ### Troubleshooting
 - ❌ `No GL account found...` → `pfetl init-db` then `make seed-coa` (seeds required by design)
+- ❌ `Must specify exactly one: --balances-json OR --use-plaid-live` → Choose one data source mode
+- ❌ `Missing balance data for accounts: [plaid_xyz]` → JSON file must include all mapped cash accounts
+- ❌ `Cannot scope by item_id yet. Ingest this item first` → Run `pfetl ingest` before other commands
 - ❌ Reconcile variance too large → `make demo-balances` (as-of balances keyed by real Plaid IDs)
 - ❌ PDF fails → Install WeasyPrint deps (see Requirements)
 

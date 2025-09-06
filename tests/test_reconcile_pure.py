@@ -437,17 +437,17 @@ def test_reconcile_tolerance_boundary_fail() -> None:
         """)
         )
 
-        # Balance with 0.011 variance (exceeds tolerance)
-        plaid_balances = {"plaid_checking": 100.011}
+        # Balance with 0.015 variance (exceeds tolerance after rounding)
+        plaid_balances = {"plaid_checking": 100.015}
 
         result = run_reconciliation(
             conn, period="2024Q1", item_id="item_A", plaid_balances=plaid_balances
         )
 
-        # Should fail - 0.011 > 0.01 tolerance
+        # Should fail - 0.015 rounds to 0.02 > 0.01 tolerance
         assert result["success"] is False
         assert result["checks"]["cash_variance"]["passed"] is False
-        assert result["total_variance"] == pytest.approx(0.011, abs=1e-3)
+        assert result["total_variance"] == pytest.approx(0.015, abs=1e-3)
 
 
 def test_reconcile_tolerance_boundary_equal_pass() -> None:
@@ -508,6 +508,178 @@ def test_reconcile_tolerance_boundary_equal_pass() -> None:
         assert result["success"] is True
         assert result["checks"]["cash_variance"]["passed"] is True
         assert result["total_variance"] == pytest.approx(0.010, abs=1e-3)
+
+
+def test_reconcile_tolerance_inclusive_positive() -> None:
+    """Test that positive variance of +0.01 passes (inclusive boundary)."""
+    engine = create_engine("sqlite:///:memory:")
+
+    with engine.begin() as conn:
+        _create_test_schema(conn)
+
+        # Setup account
+        conn.execute(
+            text("""
+            INSERT INTO accounts (id, code, name, type, is_cash) VALUES
+                (1, 'Assets:Bank:Checking', 'Checking', 'asset', 1),
+                (2, 'Expenses:Other', 'Other', 'expense', 0)
+        """)
+        )
+
+        conn.execute(
+            text("""
+            INSERT INTO plaid_accounts (plaid_account_id, name, type, subtype, currency)
+            VALUES('plaid_checking', 'Checking', 'depository', 'checking', 'USD')
+        """)
+        )
+
+        conn.execute(
+            text("""
+            INSERT INTO account_links (plaid_account_id, account_id)
+            VALUES('plaid_checking', 1)
+        """)
+        )
+
+        # Create entry for 100.00
+        conn.execute(
+            text("""
+            INSERT INTO journal_entries (id, txn_id, txn_date, description, currency,
+                                        source_hash, transform_version, item_id)
+            VALUES(1, 'txn-001', '2024-01-15', 'Test', 'USD', 'hash1', 1, 'item_A')
+        """)
+        )
+
+        conn.execute(
+            text("""
+            INSERT INTO journal_lines (entry_id, account_id, side, amount) VALUES
+                (1, 1, 'debit', 100.00),
+                (1, 2, 'credit', 100.00)
+        """)
+        )
+
+        # Balance exactly +0.01 higher than GL
+        plaid_balances = {"plaid_checking": 100.01}
+
+        result = run_reconciliation(
+            conn, period="2024Q1", item_id="item_A", plaid_balances=plaid_balances
+        )
+
+        # Should pass - tolerance is inclusive: abs(+0.01) <= 0.01
+        assert result["success"] is True
+        assert result["checks"]["cash_variance"]["passed"] is True
+        assert result["total_variance"] == pytest.approx(0.01, abs=1e-3)
+
+
+def test_reconcile_tolerance_inclusive_negative() -> None:
+    """Test that negative variance of -0.01 passes (inclusive boundary)."""
+    engine = create_engine("sqlite:///:memory:")
+
+    with engine.begin() as conn:
+        _create_test_schema(conn)
+
+        # Setup account
+        conn.execute(
+            text("""
+            INSERT INTO accounts (id, code, name, type, is_cash) VALUES
+                (1, 'Assets:Bank:Checking', 'Checking', 'asset', 1),
+                (2, 'Expenses:Other', 'Other', 'expense', 0)
+        """)
+        )
+
+        conn.execute(
+            text("""
+            INSERT INTO plaid_accounts (plaid_account_id, name, type, subtype, currency)
+            VALUES('plaid_checking', 'Checking', 'depository', 'checking', 'USD')
+        """)
+        )
+
+        conn.execute(
+            text("""
+            INSERT INTO account_links (plaid_account_id, account_id)
+            VALUES('plaid_checking', 1)
+        """)
+        )
+
+        # Create entry for 100.00
+        conn.execute(
+            text("""
+            INSERT INTO journal_entries (id, txn_id, txn_date, description, currency,
+                                        source_hash, transform_version, item_id)
+            VALUES(1, 'txn-001', '2024-01-15', 'Test', 'USD', 'hash1', 1, 'item_A')
+        """)
+        )
+
+        conn.execute(
+            text("""
+            INSERT INTO journal_lines (entry_id, account_id, side, amount) VALUES
+                (1, 1, 'debit', 100.00),
+                (1, 2, 'credit', 100.00)
+        """)
+        )
+
+        # Balance exactly -0.01 lower than GL
+        plaid_balances = {"plaid_checking": 99.99}
+
+        result = run_reconciliation(
+            conn, period="2024Q1", item_id="item_A", plaid_balances=plaid_balances
+        )
+
+        # Should pass - tolerance is inclusive: abs(-0.01) <= 0.01
+        assert result["success"] is True
+        assert result["checks"]["cash_variance"]["passed"] is True
+        assert result["total_variance"] == pytest.approx(0.01, abs=1e-3)
+
+
+def test_reconcile_zero_gl_lines_counts_as_zero() -> None:
+    """Test that mapped cash account with no lines in period has GL balance of 0.00."""
+    engine = create_engine("sqlite:///:memory:")
+
+    with engine.begin() as conn:
+        _create_test_schema(conn)
+
+        # Setup account
+        conn.execute(
+            text("""
+            INSERT INTO accounts (id, code, name, type, is_cash) VALUES
+                (1, 'Assets:Bank:Checking', 'Checking', 'asset', 1)
+        """)
+        )
+
+        conn.execute(
+            text("""
+            INSERT INTO plaid_accounts (plaid_account_id, name, type, subtype, currency)
+            VALUES('plaid_checking', 'Checking', 'depository', 'checking', 'USD')
+        """)
+        )
+
+        conn.execute(
+            text("""
+            INSERT INTO account_links (plaid_account_id, account_id)
+            VALUES('plaid_checking', 1)
+        """)
+        )
+
+        # No journal lines for this account/period
+        # GL balance should be 0.00
+
+        # External balance is also 0.00
+        plaid_balances = {"plaid_checking": 0.00}
+
+        result = run_reconciliation(
+            conn, period="2024Q1", item_id="item_A", plaid_balances=plaid_balances
+        )
+
+        # Should pass - both GL and external are 0.00, variance = 0.00
+        assert result["success"] is True
+        assert result["checks"]["cash_variance"]["passed"] is True
+        assert result["total_variance"] == pytest.approx(0.00, abs=1e-3)
+
+        # Verify by_account breakdown shows 0.00 GL balance
+        assert len(result["by_account"]) == 1
+        assert result["by_account"][0]["plaid_account_id"] == "plaid_checking"
+        assert result["by_account"][0]["gl_asof"] == 0.00
+        assert result["by_account"][0]["ext_asof"] == 0.00
+        assert result["by_account"][0]["variance"] == 0.00
 
 
 def test_reconcile_inclusive_period_window() -> None:

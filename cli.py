@@ -6,7 +6,7 @@ import logging
 import os
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import psycopg
 import typer
@@ -256,6 +256,94 @@ def _load_live_plaid_balances(access_token: str | None) -> dict[str, float]:
     }
 
 
+def _determine_balances(
+    balances_json: str | None, access_token: str | None
+) -> dict[str, float]:
+    """Determine balances source: override file (demo/CI) or live Plaid."""
+    if balances_json:
+        return _load_balances_from_json(balances_json)
+    return _load_live_plaid_balances(access_token)
+
+
+def _run_reconciliation_with_db(
+    database_url: str,
+    period: str,
+    item_id: str,
+    plaid_balances: dict[str, float],
+    out: str,
+) -> dict[str, Any]:
+    """Connect to database, run reconciliation and write results."""
+    engine = create_engine(database_url)
+    with engine.begin() as conn:
+        result = run_reconciliation(
+            conn, period=period, item_id=item_id, plaid_balances=plaid_balances
+        )
+
+        # Write result to output file
+        out_path = Path(out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with out_path.open("w") as f:
+            json.dump(result, f, indent=2, default=str)
+
+    return result
+
+
+def _log_etl_event(
+    database_url: str,
+    event_data: dict[str, str | dict[str, Any] | None],
+    timestamps: dict[str, str],
+) -> None:
+    """Log ETL event for audit trail."""
+    period = event_data["period"]
+    item_id = event_data["item_id"]
+    result = event_data["result"]
+
+    if result is not None and isinstance(result, dict):
+        # Success case - include reconciliation results
+        row_counts = json.dumps({
+            "period": period,
+            "item_id": item_id,
+            "checks": result.get("checks", {}),
+            "accounts": len(result.get("by_account", [])),
+            "total_variance": result.get("total_variance", 0.0),
+        })
+        success = bool(result.get("success"))
+    else:
+        # Exception case - minimal error info
+        row_counts = json.dumps({
+            "period": period,
+            "item_id": item_id,
+            "error": "Exception during reconciliation",
+        })
+        success = False
+
+    engine = create_engine(database_url)
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                INSERT INTO etl_events (
+                    event_type, item_id, period, row_counts,
+                    started_at, finished_at, success
+                )
+                VALUES (
+                    :event_type, :item_id, :period, :row_counts,
+                    :started_at, :finished_at, :success
+                )
+                """
+            ),
+            {
+                "event_type": "reconcile",
+                "item_id": item_id,
+                "period": period,
+                "row_counts": row_counts,
+                "started_at": timestamps["started_at"],
+                "finished_at": timestamps["finished_at"],
+                "success": success,
+            },
+        )
+
+
 @app.command("reconcile")
 def reconcile(
     item_id: Annotated[str, typer.Option("--item-id", help="Plaid item ID")],
@@ -287,66 +375,42 @@ def reconcile(
         typer.echo(f"Results written to {out}")
         raise typer.Exit(0)
 
-    def _handle_failure() -> None:
+    def _handle_failure(result: dict[str, Any]) -> None:
         typer.echo(f"{_mark_error()} Reconciliation failed for {period}", err=True)
+
+        # Provide specific failure details for common issues
+        if result and "checks" in result:
+            checks = result["checks"]
+            if not checks.get("coverage", {}).get("passed", True):
+                coverage = checks["coverage"]
+                if coverage.get("missing"):
+                    missing_accounts = ", ".join(coverage["missing"])
+                    typer.echo(
+                        f"Missing balance data for accounts: {missing_accounts}",
+                        err=True,
+                    )
+                if coverage.get("extra"):
+                    typer.echo(
+                        f"Extra accounts in balances: {', '.join(coverage['extra'])}",
+                        err=True,
+                    )
+
         typer.echo(f"Details written to {out}", err=True)
         raise typer.Exit(1)
 
+    started_at = datetime.now(UTC).isoformat()
+    result = None
+
     try:
-        started_at = datetime.now(UTC).isoformat()
-        # Determine balances source: override file (demo/CI) or live Plaid
-        if balances_json:
-            plaid_balances = _load_balances_from_json(balances_json)
-        else:
-            plaid_balances = _load_live_plaid_balances(access_token)
-
-        # Connect to database and run reconciliation
-        engine = create_engine(database_url)
-        with engine.begin() as conn:
-            result = run_reconciliation(conn, period, plaid_balances)
-
-            # Record ETL event for reconciliation (observability/audit trail)
-            try:
-                finished_at = datetime.now(UTC).isoformat()
-                row_counts = json.dumps({
-                    "period": period,
-                    "checks": result.get("checks", {}),
-                })
-                conn.execute(
-                    text(
-                        """
-                        INSERT INTO etl_events (
-                            event_type, item_id, row_counts,
-                            started_at, finished_at, success
-                        )
-                        VALUES (
-                            :event_type, :item_id, :row_counts,
-                            :started_at, :finished_at, :success
-                        )
-                        """
-                    ),
-                    {
-                        "event_type": "reconcile",
-                        "item_id": item_id,
-                        "row_counts": row_counts,
-                        "started_at": started_at,
-                        "finished_at": finished_at,
-                        "success": bool(result.get("success")),
-                    },
-                )
-            except Exception as e:
-                # Do not fail the reconcile command if event logging fails
-                typer.echo(f"WARNING:  ETL event logging failed: {e}", err=True)
-
-        # Write result to output file
-        out_path = Path(out)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        with out_path.open("w") as f:
-            json.dump(result, f, indent=2, default=str)
+        # Determine balances source and run reconciliation
+        plaid_balances = _determine_balances(balances_json, access_token)
+        result = _run_reconciliation_with_db(
+            database_url, period, item_id, plaid_balances, out
+        )
 
         if result["success"]:
             _handle_success()
-        _handle_failure()
+        _handle_failure(result)
 
     except typer.Exit:
         # Propagate intended exit codes (0 or 1) without wrapping
@@ -354,6 +418,18 @@ def reconcile(
     except Exception as e:
         typer.echo(f"{_mark_error()} Error during reconciliation: {e}", err=True)
         raise typer.Exit(1) from e
+    finally:
+        # Always record ETL event (success or failure) for audit trail
+        try:
+            finished_at = datetime.now(UTC).isoformat()
+            _log_etl_event(
+                database_url,
+                {"period": period, "item_id": item_id, "result": result},
+                {"started_at": started_at, "finished_at": finished_at},
+            )
+        except Exception as log_error:
+            # Do not fail the reconcile command if event logging fails
+            typer.echo(f"WARNING: ETL event logging failed: {log_error}", err=True)
 
 
 def _validate_report_formats(formats: str) -> list[str]:

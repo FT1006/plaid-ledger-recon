@@ -32,62 +32,72 @@ make db-up
 
 # Initialize database schema
 pfetl init-db
+
+# Seed GL accounts (required before ingest)
+make seed-coa
 ```
 
 ### 3) Onboard Sandbox Bank Account
 
 ```bash
-# Creates sandbox institution and prints ITEM_ID
-pfetl onboard --sandbox
-# Example output: abc123
+# Creates sandbox institution and writes ITEM_ID to .env
+pfetl onboard --sandbox --write-env
+source .env
 ```
 
 ### 4) Ingest Transactions
 
 ```bash
 # Fetch 90 days of transactions
-pfetl ingest --item-id abc123 --from 2024-01-01 --to 2024-03-31
+pfetl ingest --item-id $PLAID_ITEM_ID --from 2024-01-01 --to 2024-03-31
 # Ingested 1234 transactions.
 ```
 
 ### 5) Map Accounts for Reconciliation
 
 ```bash
-# List available Plaid accounts
-make db-shell
-pfetl=# SELECT plaid_account_id, name, type FROM plaid_accounts;
-pfetl=# \q
+# List available Plaid accounts for your item
+pfetl list-plaid-accounts --item-id $PLAID_ITEM_ID
 
 # Map each cash account to GL code (required for Plaid-vs-GL cash variance)
-pfetl map-account --plaid-account-id plaid_123 --gl-code "Assets:Bank:Checking"
-pfetl map-account --plaid-account-id plaid_456 --gl-code "Assets:Bank:Savings"
-# Linked plaid_123 → Assets:Bank:Checking
+pfetl map-account --plaid-account-id <PLAID_ID> --gl-code "Assets:Bank:Checking"
+pfetl map-account --plaid-account-id <PLAID_ID> --gl-code "Assets:Bank:Savings"
+# ✅ Linked <PLAID_ID> → Assets:Bank:Checking
 ```
 
 ### 6) Run Reconciliation Gates
 
 ```bash
-# Period-aware reconciliation with Plaid balance comparison
-pfetl reconcile --item-id abc123 --period 2024Q1 --out build/recon.json
-# Reconciliation passed for 2024Q1
-# Results written to build/recon.json
+# Generate demo balances that match GL (for demo purposes)
+make demo-balances
 
-# Note: Plaid Sandbox current balances include history outside your ingest window.
-# For demos/CI, pass curated period balances to avoid drift:
-# pfetl reconcile --item-id abc123 --period 2024Q1 --out build/recon.json \
-#   --balances-json build/balances.json
-# --balances-json is documented in ADR-001-LIVING and README; production default remains live Plaid balances.
+# Period-aware reconciliation - two modes available:
+
+# Deterministic mode (demo/CI) - uses JSON file for reproducible results
+pfetl reconcile --item-id $PLAID_ITEM_ID --period 2024Q1 \
+  --balances-json build/demo_balances.json \
+  --out build/recon.json
+# ✅ Reconciliation passed for 2024Q1 (deterministic)
+
+# Production mode - uses live Plaid API balances (non-deterministic)  
+# pfetl reconcile --item-id $PLAID_ITEM_ID --period 2024Q1 \
+#   --use-plaid-live \
+#   --out build/recon.json
+# ✅ Reconciliation passed for 2024Q1 (live data)
+
+# Reconciliation compares GL ending balances to external balances for all mapped cash accounts
+# Demo balances ensure reconciliation passes by using actual GL balances.
 ```
 
 ### 7) Generate Reports
 
 ```bash
 # Deterministic HTML + PDF reports
-pfetl report --item-id abc123 --period 2024Q1 --formats html,pdf --out build/
-# Generated: build/bs_2024Q1.html
-# Generated: build/bs_2024Q1.pdf
-# Generated: build/cf_2024Q1.html
-# Generated: build/cf_2024Q1.pdf
+pfetl report --item-id $PLAID_ITEM_ID --period 2024Q1 --formats html,pdf --out build/
+# ✅ Generated: build/bs_2024Q1.html
+# ✅ Generated: build/bs_2024Q1.pdf
+# ✅ Generated: build/cf_2024Q1.html
+# ✅ Generated: build/cf_2024Q1.pdf
 ```
 
 ## Verification Steps
