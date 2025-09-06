@@ -747,3 +747,183 @@ def test_reconcile_inclusive_period_window() -> None:
         # Should include both boundary date entries and pass reconciliation
         assert result["success"] is True
         assert result["total_variance"] == pytest.approx(0.00, abs=1e-2)
+
+
+def test_coverage_ignores_extras_but_fails_on_missing() -> None:
+    """Test that coverage check ignores extras but fails on missing mapped accounts."""
+    engine = create_engine("sqlite:///:memory:")
+
+    with engine.begin() as conn:
+        _create_test_schema(conn)
+
+        # Setup ONE mapped cash account
+        conn.execute(
+            text("""
+            INSERT INTO accounts (id, code, name, type, is_cash) VALUES
+                (1, 'Assets:Bank:Checking', 'Checking', 'asset', 1),
+                (2, 'Expenses:Other', 'Other', 'expense', 0)
+        """)
+        )
+
+        conn.execute(
+            text("""
+            INSERT INTO plaid_accounts (plaid_account_id, name, type, subtype, currency)
+            VALUES('plaid_checking', 'Checking', 'depository', 'checking', 'USD')
+        """)
+        )
+
+        conn.execute(
+            text("""
+            INSERT INTO account_links (plaid_account_id, account_id)
+            VALUES('plaid_checking', 1)
+        """)
+        )
+
+        # Test 1: Extra account in plaid_balances should be ignored (pass)
+        plaid_balances_with_extra = {
+            "plaid_checking": 0.00,  # Mapped
+            "plaid_unmapped": 50.00,  # Extra - should be ignored
+        }
+
+        result = run_reconciliation(
+            conn,
+            period="2024Q1",
+            item_id="item_A",
+            plaid_balances=plaid_balances_with_extra,
+        )
+
+        assert result["checks"]["coverage"]["passed"] is True
+        assert "extras_ignored" in result["checks"]["coverage"]
+        assert "plaid_unmapped" in result["checks"]["coverage"]["extras_ignored"]
+
+        # Test 2: Missing mapped account should fail coverage
+        plaid_balances_missing_mapped = {
+            "plaid_unmapped": 50.00,  # Only extra, missing the required mapped one
+        }
+
+        result = run_reconciliation(
+            conn,
+            period="2024Q1",
+            item_id="item_A",
+            plaid_balances=plaid_balances_missing_mapped,
+        )
+
+        assert result["checks"]["coverage"]["passed"] is False
+        assert "missing" in result["checks"]["coverage"]
+        assert "plaid_checking" in result["checks"]["coverage"]["missing"]
+        assert result["success"] is False  # Overall failure due to coverage
+
+
+def test_pure_function_never_writes_events() -> None:
+    """Test that run_reconciliation() pure function never writes to etl_events table."""
+    engine = create_engine("sqlite:///:memory:")
+
+    with engine.begin() as conn:
+        _create_test_schema(conn)
+
+        # Setup minimal data for a successful reconciliation
+        conn.execute(
+            text("""
+            INSERT INTO accounts (id, code, name, type, is_cash) VALUES
+                (1, 'Assets:Bank:Checking', 'Checking', 'asset', 1)
+        """)
+        )
+
+        conn.execute(
+            text("""
+            INSERT INTO plaid_accounts (plaid_account_id, name, type, subtype, currency)
+            VALUES('plaid_checking', 'Checking', 'depository', 'checking', 'USD')
+        """)
+        )
+
+        conn.execute(
+            text("""
+            INSERT INTO account_links (plaid_account_id, account_id)
+            VALUES('plaid_checking', 1)
+        """)
+        )
+
+        # Run reconciliation (should be pure, no side effects)
+        plaid_balances = {"plaid_checking": 0.00}
+        result = run_reconciliation(
+            conn, period="2024Q1", item_id="item_A", plaid_balances=plaid_balances
+        )
+
+        # Verify reconciliation worked
+        assert result["success"] is True
+
+        # Verify NO events were written (pure function boundary)
+        event_count = conn.execute(text("SELECT COUNT(*) FROM etl_events")).scalar()
+        assert event_count == 0, (
+            "Pure function run_reconciliation() must not write to etl_events"
+        )
+
+
+def test_tolerance_is_inclusive_at_boundary() -> None:
+    """Test that tolerance check is inclusive: exactly 0.01 variance passes."""
+    engine = create_engine("sqlite:///:memory:")
+
+    with engine.begin() as conn:
+        _create_test_schema(conn)
+
+        # Setup account
+        conn.execute(
+            text("""
+            INSERT INTO accounts (id, code, name, type, is_cash) VALUES
+                (1, 'Assets:Bank:Checking', 'Checking', 'asset', 1),
+                (2, 'Expenses:Other', 'Other', 'expense', 0)
+        """)
+        )
+
+        conn.execute(
+            text("""
+            INSERT INTO plaid_accounts (plaid_account_id, name, type, subtype, currency)
+            VALUES('plaid_checking', 'Checking', 'depository', 'checking', 'USD')
+        """)
+        )
+
+        conn.execute(
+            text("""
+            INSERT INTO account_links (plaid_account_id, account_id)
+            VALUES('plaid_checking', 1)
+        """)
+        )
+
+        # Create entry for exact boundary case
+        conn.execute(
+            text("""
+            INSERT INTO journal_entries (id, txn_id, txn_date, description, currency,
+                                        source_hash, transform_version, item_id)
+            VALUES(1, 'txn-001', '2024-01-15', 'Test', 'USD', 'hash1', 1, 'item_A')
+        """)
+        )
+
+        conn.execute(
+            text("""
+            INSERT INTO journal_lines (entry_id, account_id, side, amount) VALUES
+                (1, 1, 'debit', 100.00),
+                (1, 2, 'credit', 100.00)
+        """)
+        )
+
+        # External balance differs by exactly 0.01 (boundary case)
+        plaid_balances = {"plaid_checking": 100.01}
+
+        result = run_reconciliation(
+            conn, period="2024Q1", item_id="item_A", plaid_balances=plaid_balances
+        )
+
+        # Exactly 0.01 variance should pass (inclusive boundary)
+        assert result["checks"]["cash_variance"]["passed"] is True
+        assert result["total_variance"] == pytest.approx(0.01, abs=1e-3)
+        assert result["success"] is True
+
+        # Test just over boundary (should fail)
+        plaid_balances_over = {"plaid_checking": 100.011}
+
+        result_over = run_reconciliation(
+            conn, period="2024Q1", item_id="item_A", plaid_balances=plaid_balances_over
+        )
+
+        assert result_over["checks"]["cash_variance"]["passed"] is False
+        assert result_over["success"] is False
