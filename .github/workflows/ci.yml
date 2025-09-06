@@ -90,6 +90,9 @@ jobs:
   test-unit:
     name: Unit Tests (pytest -m "not integration")
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: "postgresql://pfetl_user:pfetl_password@localhost:5432/pfetl"
+      PFETL_SKIP_DOTENV: "1"
     services:
       postgres:
         image: postgres:16
@@ -140,6 +143,9 @@ jobs:
     name: Integration Tests (mocked Plaid)
     runs-on: ubuntu-latest
     if: github.event_name != 'schedule'  # Skip on nightly runs
+    env:
+      DATABASE_URL: "postgresql://pfetl_user:pfetl_password@localhost:5432/pfetl"
+      PFETL_SKIP_DOTENV: "1"
     services:
       postgres:
         image: postgres:16
@@ -193,6 +199,8 @@ jobs:
         ports:
           - 5432:5432
     env:
+      DATABASE_URL: "postgresql://pfetl_user:pfetl_password@localhost:5432/pfetl"
+      PFETL_SKIP_DOTENV: "1"
       # For nightly runs, use real credentials from secrets
       PLAID_CLIENT_ID: ${{ github.event_name == 'schedule' && secrets.PLAID_CLIENT_ID || 'mock_client_id' }}
       PLAID_SECRET: ${{ github.event_name == 'schedule' && secrets.PLAID_SECRET || 'mock_secret' }}

@@ -124,17 +124,19 @@ def test_filters_by_item_via_db_join(temp_db: str) -> None:
 
     # Test the command - import cli after patching env
     with (
-        patch.dict(os.environ, {"DATABASE_URL": temp_db}),
+        patch.dict(
+            os.environ, {"DATABASE_URL": temp_db, "PFETL_SKIP_DOTENV": "1"}, clear=True
+        ),
         patch("dotenv.load_dotenv"),  # Prevent .env loading
-        patch("cli.create_plaid_client_from_env") as mock_client,
+        patch("etl.extract.fetch_accounts") as mock_fetch_accounts,
     ):
         # Import and reload cli module to ensure it sees patched env
-        import cli  # noqa: PLC0415
+        import cli
 
         importlib.reload(cli)
 
         # Make API call fail so it falls back to DB
-        mock_client.side_effect = Exception("No API access")
+        mock_fetch_accounts.side_effect = Exception("No API access")
 
         result = runner.invoke(cli.app, ["list-plaid-accounts", "--item-id", "item_A"])
 
@@ -174,17 +176,19 @@ def test_fails_fast_when_no_accounts_for_item(temp_db: str) -> None:
 
     # Test the command - import cli after patching env
     with (
-        patch.dict(os.environ, {"DATABASE_URL": temp_db}),
+        patch.dict(
+            os.environ, {"DATABASE_URL": temp_db, "PFETL_SKIP_DOTENV": "1"}, clear=True
+        ),
         patch("dotenv.load_dotenv"),  # Prevent .env loading
-        patch("cli.create_plaid_client_from_env") as mock_client,
+        patch("etl.extract.fetch_accounts") as mock_fetch_accounts,
     ):
         # Import and reload cli module to ensure it sees patched env
-        import cli  # noqa: PLC0415
+        import cli
 
         importlib.reload(cli)
 
         # Make API call fail so it falls back to DB
-        mock_client.side_effect = Exception("No API access")
+        mock_fetch_accounts.side_effect = Exception("No API access")
 
         result = runner.invoke(cli.app, ["list-plaid-accounts", "--item-id", "item_Z"])
 
@@ -213,17 +217,19 @@ def test_fails_fast_when_item_scoping_unavailable(temp_db: str) -> None:
 
     # Test the command - import cli after patching env
     with (
-        patch.dict(os.environ, {"DATABASE_URL": temp_db}),
+        patch.dict(
+            os.environ, {"DATABASE_URL": temp_db, "PFETL_SKIP_DOTENV": "1"}, clear=True
+        ),
         patch("dotenv.load_dotenv"),  # Prevent .env loading
-        patch("cli.create_plaid_client_from_env") as mock_client,
+        patch("etl.extract.fetch_accounts") as mock_fetch_accounts,
     ):
         # Import and reload cli module to ensure it sees patched env
-        import cli  # noqa: PLC0415
+        import cli
 
         importlib.reload(cli)
 
         # Make API call fail so it falls back to DB
-        mock_client.side_effect = Exception("No API access")
+        mock_fetch_accounts.side_effect = Exception("No API access")
 
         result = runner.invoke(cli.app, ["list-plaid-accounts", "--item-id", "item_A"])
 
@@ -251,17 +257,21 @@ def test_fails_fast_when_ingest_table_missing(temp_db_no_ingest_table: str) -> N
 
     # Test the command - import cli after patching env
     with (
-        patch.dict(os.environ, {"DATABASE_URL": temp_db_no_ingest_table}),
+        patch.dict(
+            os.environ,
+            {"DATABASE_URL": temp_db_no_ingest_table, "PFETL_SKIP_DOTENV": "1"},
+            clear=True,
+        ),
         patch("dotenv.load_dotenv"),  # Prevent .env loading
-        patch("cli.create_plaid_client_from_env") as mock_client,
+        patch("etl.extract.fetch_accounts") as mock_fetch_accounts,
     ):
         # Import and reload cli module to ensure it sees patched env
-        import cli  # noqa: PLC0415
+        import cli
 
         importlib.reload(cli)
 
         # Make API call fail so it falls back to DB
-        mock_client.side_effect = Exception("No API access")
+        mock_fetch_accounts.side_effect = Exception("No API access")
 
         result = runner.invoke(cli.app, ["list-plaid-accounts", "--item-id", "item_A"])
 
@@ -301,13 +311,15 @@ def test_api_path_succeeds(temp_db: str) -> None:
                 "PLAID_CLIENT_ID": "fake_client_id",
                 "PLAID_SECRET": "fake_secret",
                 "PLAID_ENV": "sandbox",
+                "PFETL_SKIP_DOTENV": "1",
             },
+            clear=True,
         ),
         patch("dotenv.load_dotenv"),  # Prevent .env loading
         patch("etl.extract.fetch_accounts") as mock_fetch_accounts,
     ):
         # Import and reload cli module to ensure it sees patched env
-        import cli  # noqa: PLC0415
+        import cli
 
         importlib.reload(cli)
 
@@ -346,13 +358,15 @@ def test_json_output_format(temp_db: str) -> None:
                 "PLAID_CLIENT_ID": "fake_client_id",
                 "PLAID_SECRET": "fake_secret",
                 "PLAID_ENV": "sandbox",
+                "PFETL_SKIP_DOTENV": "1",
             },
+            clear=True,
         ),
         patch("dotenv.load_dotenv"),  # Prevent .env loading
         patch("etl.extract.fetch_accounts") as mock_fetch_accounts,
     ):
         # Import and reload cli module to ensure it sees patched env
-        import cli  # noqa: PLC0415
+        import cli
 
         importlib.reload(cli)
 
@@ -394,10 +408,12 @@ def test_json_output_db_path(temp_db: str) -> None:
 
     # Test DB path (no PLAID_ACCESS_TOKEN)
     with (
-        patch.dict(os.environ, {"DATABASE_URL": temp_db}),
+        patch.dict(
+            os.environ, {"DATABASE_URL": temp_db, "PFETL_SKIP_DOTENV": "1"}, clear=True
+        ),
         patch("dotenv.load_dotenv"),
     ):
-        import cli  # noqa: PLC0415
+        import cli
 
         importlib.reload(cli)
 
@@ -417,3 +433,147 @@ def test_json_output_db_path(temp_db: str) -> None:
             "subtype": "checking",
         }
     ]
+
+
+def test_cli_respects_skip_dotenv_env(temp_db: str) -> None:
+    """Test CLI respects PFETL_SKIP_DOTENV=1 and doesn't load .env file."""
+    engine = create_engine(temp_db)
+
+    # Seed minimal test data
+    with engine.begin() as conn:
+        conn.execute(
+            text("""
+            INSERT INTO plaid_accounts (plaid_account_id, name, type, subtype)
+            VALUES ('acc_test', 'Test Account', 'depository', 'checking')
+        """)
+        )
+        conn.execute(
+            text("""
+            INSERT INTO ingest_accounts (item_id, plaid_account_id)
+            VALUES ('test_item', 'acc_test')
+        """)
+        )
+
+    # Test with PFETL_SKIP_DOTENV=1 - should not call load_dotenv()
+    with (
+        patch.dict(
+            os.environ, {"DATABASE_URL": temp_db, "PFETL_SKIP_DOTENV": "1"}, clear=True
+        ),
+        patch("dotenv.load_dotenv") as mock_load_dotenv,
+        patch("etl.extract.fetch_accounts") as mock_fetch_accounts,
+    ):
+        # Import and reload cli module to ensure it sees patched env
+        import cli
+
+        importlib.reload(cli)
+
+        # Make API call fail so it falls back to DB
+        mock_fetch_accounts.side_effect = Exception("No API access")
+
+        result = runner.invoke(
+            cli.app, ["list-plaid-accounts", "--item-id", "test_item"]
+        )
+
+    assert result.exit_code == 0
+    assert "acc_test" in result.output
+    # Verify load_dotenv was NOT called due to PFETL_SKIP_DOTENV=1
+    mock_load_dotenv.assert_not_called()
+
+
+def test_list_accounts_without_token_uses_db_fallback_and_never_calls_fetch(
+    temp_db: str,
+) -> None:
+    """Test list-plaid-accounts without token uses DB fallback.
+
+    Never calls fetch_accounts.
+    """
+    engine = create_engine(temp_db)
+
+    # Seed minimal test data for DB fallback
+    with engine.begin() as conn:
+        conn.execute(
+            text("""
+            INSERT INTO plaid_accounts (plaid_account_id, name, type, subtype)
+            VALUES ('acc_test', 'Test Account', 'depository', 'checking')
+        """)
+        )
+        conn.execute(
+            text("""
+            INSERT INTO ingest_accounts (item_id, plaid_account_id)
+            VALUES ('test_item', 'acc_test')
+        """)
+        )
+
+    # Test with no PLAID_ACCESS_TOKEN - should use DB fallback without calling
+    # fetch_accounts
+    with (
+        patch.dict(
+            os.environ, {"DATABASE_URL": temp_db, "PFETL_SKIP_DOTENV": "1"}, clear=True
+        ),
+        patch("dotenv.load_dotenv"),
+        patch("etl.extract.fetch_accounts") as mock_fetch_accounts,
+    ):
+        # Import and reload cli module to ensure it sees patched env
+        import cli
+
+        importlib.reload(cli)
+
+        # Without token, should use DB fallback and never call fetch_accounts
+        result = runner.invoke(
+            cli.app, ["list-plaid-accounts", "--item-id", "test_item"]
+        )
+
+    # Should succeed using DB fallback when no token (exit 0)
+    assert result.exit_code == 0
+    assert "acc_test" in result.output
+    # Verify fetch_accounts was NOT called due to missing token
+    mock_fetch_accounts.assert_not_called()
+
+
+def test_list_accounts_with_token_calls_fetch_exactly_once(temp_db: str) -> None:
+    """Test list-plaid-accounts with token calls fetch_accounts exactly once."""
+    # Mock Plaid account objects (as dicts, not MagicMock objects)
+    mock_accounts = [
+        {
+            "account_id": "token_acc_1",
+            "name": "Token Test Account",
+            "type": "depository",
+            "subtype": "checking",
+        }
+    ]
+
+    # Test with PLAID_ACCESS_TOKEN present - should call fetch_accounts exactly once
+    with (
+        patch.dict(
+            os.environ,
+            {
+                "DATABASE_URL": temp_db,
+                "PLAID_ACCESS_TOKEN": "test_token",
+                "PLAID_CLIENT_ID": "test_client_id",
+                "PLAID_SECRET": "test_secret",
+                "PLAID_ENV": "sandbox",
+                "PFETL_SKIP_DOTENV": "1",
+            },
+            clear=True,
+        ),
+        patch("dotenv.load_dotenv"),
+        patch("etl.extract.fetch_accounts") as mock_fetch_accounts,
+    ):
+        # Import and reload cli module to ensure it sees patched env
+        import cli
+
+        importlib.reload(cli)
+
+        # Mock successful API response
+        mock_fetch_accounts.return_value = mock_accounts
+
+        result = runner.invoke(
+            cli.app, ["list-plaid-accounts", "--item-id", "test_item"]
+        )
+
+    # Should succeed using API path (exit 0)
+    assert result.exit_code == 0
+    assert "token_acc_1" in result.output
+    assert "Token Test Account" in result.output
+    # Verify fetch_accounts was called exactly once due to token presence
+    mock_fetch_accounts.assert_called_once()

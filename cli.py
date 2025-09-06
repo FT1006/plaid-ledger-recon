@@ -49,6 +49,14 @@ def _load_env() -> None:
     if os.getenv("PFETL_SKIP_DOTENV") != "1":
         load_dotenv(override=False)  # Never override already-set env in CI/tests
 
+    # Fail fast if DATABASE_URL missing (prevent silent fallbacks)
+    if not os.getenv("DATABASE_URL"):
+        typer.echo(
+            "Error: DATABASE_URL not set. Please set it via environment or .env file.",
+            err=True,
+        )
+        raise typer.Exit(2)
+
 
 def _parse_date(value: str) -> date:
     """Parse date string in YYYY-MM-DD format."""
