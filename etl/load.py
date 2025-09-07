@@ -14,15 +14,21 @@ if TYPE_CHECKING:
     from sqlalchemy.engine import Connection
 
 
-def load_accounts(accounts: list[dict[str, Any]], conn: Connection | None, *, item_id: str | None = None) -> None:
+def load_accounts(
+    accounts: list[dict[str, Any]],
+    conn: Connection | None,
+    *,
+    item_id: str,
+) -> None:
     """Upsert accounts by plaid_account_id into ingest_accounts shim table.
 
     Uses INSERT ... ON CONFLICT for PostgreSQL, fallback for SQLite tests.
-    
+    Post Step B migration: item_id is required for composite PK.
+
     Args:
         accounts: List of account dictionaries from Plaid
         conn: Database connection
-        item_id: Optional Plaid item ID for item-scoped queries (Step A migration)
+        item_id: Required Plaid item ID for composite PK (item_id, plaid_account_id)
     """
     if not accounts:
         return
@@ -36,84 +42,70 @@ def load_accounts(accounts: list[dict[str, Any]], conn: Connection | None, *, it
     if dialect == "postgresql":
         # PostgreSQL: Use raw SQL INSERT ... ON CONFLICT DO UPDATE
         for account in accounts:
-            account_data = {**account, "item_id": item_id}  # None is valid for nullable column
-            
+            account_data = {
+                **account,
+                "item_id": item_id,
+            }
+
             conn.execute(
                 text("""
                     INSERT INTO ingest_accounts (
                         plaid_account_id, name, type, subtype, currency, item_id
                     )
-                    VALUES (:plaid_account_id, :name, :type, :subtype, :currency, :item_id)
-                    ON CONFLICT (plaid_account_id) DO UPDATE SET
+                    VALUES (
+                        :plaid_account_id, :name, :type, :subtype, :currency, :item_id
+                    )
+                    ON CONFLICT (item_id, plaid_account_id) DO UPDATE SET
                         name = EXCLUDED.name,
                         type = EXCLUDED.type,
                         subtype = EXCLUDED.subtype,
-                        currency = EXCLUDED.currency,
-                        item_id = EXCLUDED.item_id
+                        currency = EXCLUDED.currency
                 """),
                 account_data,
             )
     else:
-        # SQLite (for tests): Manual upsert
+        # SQLite (for tests): Manual upsert with composite PK
         for account in accounts:
-            account_data = {**account}
-            
-            # Check if exists
+            account_data = {
+                **account,
+                "item_id": item_id,
+            }
+
+            # Check if exists using composite key
             existing = conn.execute(
                 text(
-                    "SELECT plaid_account_id FROM ingest_accounts "
-                    "WHERE plaid_account_id = :pid"
+                    "SELECT 1 FROM ingest_accounts "
+                    "WHERE item_id = :item_id AND plaid_account_id = :pid"
                 ),
-                {"pid": account["plaid_account_id"]},
+                {"item_id": item_id, "pid": account["plaid_account_id"]},
             ).fetchone()
 
-            if item_id is not None:
-                account_data["item_id"] = item_id
-                if existing:
-                    # Update with item_id
-                    conn.execute(
-                        text("""
-                            UPDATE ingest_accounts
-                            SET name = :name, type = :type, subtype = :subtype,
-                                currency = :currency, item_id = :item_id
-                            WHERE plaid_account_id = :plaid_account_id
-                        """),
-                        account_data,
-                    )
-                else:
-                    # Insert with item_id
-                    conn.execute(
-                        text("""
-                            INSERT INTO ingest_accounts (
-                                plaid_account_id, name, type, subtype, currency, item_id
-                            )
-                            VALUES (:plaid_account_id, :name, :type, :subtype, :currency, :item_id)
-                        """),
-                        account_data,
-                    )
+            if existing:
+                # Update existing record
+                conn.execute(
+                    text("""
+                        UPDATE ingest_accounts
+                        SET name = :name, type = :type, subtype = :subtype,
+                            currency = :currency
+                        WHERE item_id = :item_id
+                            AND plaid_account_id = :plaid_account_id
+                    """),
+                    account_data,
+                )
             else:
-                if existing:
-                    # Update without item_id (backward compatibility)
-                    conn.execute(
-                        text("""
-                            UPDATE ingest_accounts
-                            SET name = :name, type = :type, subtype = :subtype,
-                                currency = :currency
-                            WHERE plaid_account_id = :plaid_account_id
-                        """),
-                        account_data,
-                    )
-                else:
-                    # Insert without item_id (backward compatibility)
-                    conn.execute(
-                        text("""
-                            INSERT INTO ingest_accounts (
-                                plaid_account_id, name, type, subtype, currency
-                            )
-                            VALUES (:plaid_account_id, :name, :type, :subtype, :currency)
-                        """),
-                        account_data,
-                    )
+                # Insert new record
+                conn.execute(
+                    text("""
+                        INSERT INTO ingest_accounts (
+                            plaid_account_id, name, type, subtype, currency, item_id
+                        )
+                        VALUES (
+                            :plaid_account_id, :name, :type, :subtype,
+                            :currency, :item_id
+                        )
+                    """),
+                    account_data,
+                )
 
 
 def _validate_lineage(entry: dict[str, Any]) -> None:

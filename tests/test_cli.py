@@ -7,6 +7,7 @@ from decimal import Decimal
 from unittest.mock import patch
 
 from cli import app
+from sqlalchemy import text
 from typer.testing import CliRunner
 
 runner = CliRunner()
@@ -552,3 +553,160 @@ def test_ingest_row_count_reporting() -> None:
         assert result.exit_code == 0
         # Should report transaction count
         assert "5" in result.output or "transactions" in result.output
+
+
+def test_ingest_creates_composite_pk_rows() -> None:
+    """After pfetl ingest --item-id X, verify (item_id, plaid_account_id) rows exist.
+
+    Step B e2e test: Validates composite PK functionality in practice.
+    """
+    import tempfile
+
+    from sqlalchemy import create_engine
+
+    # Create temporary SQLite database with Step B schema
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+        db_path = tmp.name
+
+    try:
+        engine = create_engine(f"sqlite:///{db_path}")
+
+        # Create Step B schema with composite PK
+        with engine.begin() as conn:
+            conn.execute(text("PRAGMA foreign_keys=ON"))
+            # Minimal schema for this test
+            conn.execute(
+                text("""
+                CREATE TABLE ingest_accounts (
+                    item_id TEXT NOT NULL,
+                    plaid_account_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    type TEXT NOT NULL,
+                    subtype TEXT NOT NULL,
+                    currency TEXT NOT NULL,
+                    PRIMARY KEY (item_id, plaid_account_id)
+                )
+            """)
+            )
+
+            conn.execute(
+                text("""
+                CREATE TABLE accounts (
+                    id TEXT PRIMARY KEY,
+                    code TEXT UNIQUE NOT NULL,
+                    name TEXT NOT NULL,
+                    type TEXT NOT NULL,
+                    is_cash BOOLEAN NOT NULL DEFAULT 0
+                )
+            """)
+            )
+
+            conn.execute(
+                text("""
+                CREATE TABLE plaid_accounts (
+                    plaid_account_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    type TEXT NOT NULL,
+                    subtype TEXT NOT NULL,
+                    currency TEXT NOT NULL DEFAULT 'USD'
+                )
+            """)
+            )
+
+            # Seed required GL accounts
+            conn.execute(
+                text("""
+                INSERT INTO accounts (id, code, name, type, is_cash)
+                VALUES ('expenses_dining', 'Expenses:Dining', 'Dining', 'expense', 0)
+            """)
+            )
+
+        with (
+            patch("cli.sync_transactions") as sync_txns,
+            patch("cli.fetch_accounts") as fetch_accts,
+            patch("cli.map_plaid_to_journal") as map_to_journal,
+            patch("cli.load_dotenv"),
+            patch("cli.os.getenv") as getenv,
+        ):
+            getenv.side_effect = lambda k: {
+                "DATABASE_URL": f"sqlite:///{db_path}",
+                "PLAID_ACCESS_TOKEN": "test_token",
+            }.get(k)
+
+            # Mock Plaid API responses
+            sync_txns.return_value = iter([
+                {
+                    "transaction_id": "test_txn_001",
+                    "account_id": "test_acc_001",
+                    "amount": 25.50,
+                    "date": "2024-01-15",
+                    "name": "Coffee Shop",
+                    "pending": False,
+                },
+            ])
+
+            fetch_accts.return_value = [
+                {
+                    "account_id": "test_acc_001",
+                    "name": "Test Checking",
+                    "type": "depository",
+                    "subtype": "checking",
+                }
+            ]
+
+            map_to_journal.return_value = []  # Skip journal entries for this test
+
+            # Run ingest command
+            result = runner.invoke(
+                app,
+                [
+                    "ingest",
+                    "--item-id",
+                    "test_item_e2e",
+                    "--from",
+                    "2024-01-01",
+                    "--to",
+                    "2024-01-31",
+                ],
+            )
+
+            assert result.exit_code == 0
+
+            # Verify (item_id, plaid_account_id) row exists
+            with engine.begin() as conn:
+                rows = conn.execute(
+                    text("""
+                    SELECT item_id, plaid_account_id, name
+                    FROM ingest_accounts
+                    WHERE item_id = 'test_item_e2e'
+                    AND plaid_account_id = 'test_acc_001'
+                """)
+                ).fetchall()
+
+                assert len(rows) == 1, f"Expected 1 row, got {len(rows)}"
+                assert rows[0].item_id == "test_item_e2e"
+                assert rows[0].plaid_account_id == "test_acc_001"
+                assert rows[0].name == "Test Checking"
+
+            # Verify composite PK constraint works (no duplicates)
+            with engine.begin() as conn:
+                all_rows = conn.execute(
+                    text("""
+                    SELECT item_id, plaid_account_id, COUNT(*) as cnt
+                    FROM ingest_accounts
+                    GROUP BY item_id, plaid_account_id
+                """)
+                ).fetchall()
+
+                for row in all_rows:
+                    assert row.cnt == 1, (
+                        f"Duplicate found: {row.item_id}, {row.plaid_account_id}"
+                    )
+
+    finally:
+        # Cleanup
+        from contextlib import suppress
+        from pathlib import Path
+
+        with suppress(FileNotFoundError):
+            Path(db_path).unlink()

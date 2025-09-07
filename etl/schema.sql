@@ -42,13 +42,15 @@ CREATE TABLE IF NOT EXISTS account_links (
 
 -- Legacy shim table for backward compatibility (will be deprecated)
 -- TODO: Remove after migration complete
+-- Step B: Composite PRIMARY KEY for proper item-scoped account management
 CREATE TABLE IF NOT EXISTS ingest_accounts (
-  plaid_account_id TEXT PRIMARY KEY,
+  item_id TEXT NOT NULL,
+  plaid_account_id TEXT NOT NULL,
   name TEXT NOT NULL,
   type TEXT NOT NULL,        -- depository/credit/... (Plaid domain)
   subtype TEXT NOT NULL,
   currency TEXT NOT NULL,
-  item_id TEXT               -- Step A: nullable column for item-scoped queries
+  PRIMARY KEY (item_id, plaid_account_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_ingest_accounts_item_id ON ingest_accounts(item_id);

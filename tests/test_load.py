@@ -95,11 +95,13 @@ def db_engine() -> Engine:
         conn.execute(
             text("""
             CREATE TABLE ingest_accounts (
-                plaid_account_id TEXT PRIMARY KEY,
+                item_id TEXT NOT NULL,
+                plaid_account_id TEXT NOT NULL,
                 name TEXT NOT NULL,
                 type TEXT NOT NULL,
                 subtype TEXT NOT NULL,
-                currency TEXT NOT NULL
+                currency TEXT NOT NULL,
+                PRIMARY KEY (item_id, plaid_account_id)
             )
         """)
         )
@@ -186,12 +188,12 @@ def test_idempotent_reingest_no_duplicates(db_engine: Engine) -> None:
         seed_account(conn, "Income:Salary", "income", 0)
 
         # First load
-        load_accounts(accounts, conn)
+        load_accounts(accounts, conn, item_id="test_item_001")
         load_journal_entries(entries, conn)
         first_count = get_entries_count(conn)
 
         # Second load (idempotent)
-        load_accounts(accounts, conn)
+        load_accounts(accounts, conn, item_id="test_item_001")
         load_journal_entries(entries, conn)
         second_count = get_entries_count(conn)
 
@@ -222,11 +224,11 @@ def test_accounts_upsert_by_plaid_account_id(db_engine: Engine) -> None:
 
     with db_engine.begin() as conn:
         # Initial load
-        load_accounts([initial_account], conn)
+        load_accounts([initial_account], conn, item_id="test_item_456")
         first_result = get_account_by_plaid_id("acc_456", conn)
 
         # Update load
-        load_accounts([updated_account], conn)
+        load_accounts([updated_account], conn, item_id="test_item_456")
         second_result = get_account_by_plaid_id("acc_456", conn)
 
     assert first_result is not None
@@ -343,7 +345,7 @@ def test_bulk_load_performance_with_many_entries(db_engine: Engine) -> None:
     with db_engine.begin() as conn:
         seed_account(conn, "Expenses:Test", type_="expense")
         seed_account(conn, "Assets:Bank", type_="asset", is_cash=1)
-        load_accounts(accounts, conn)
+        load_accounts(accounts, conn, item_id="test_bulk_item")
         load_journal_entries(entries, conn)
         count = get_entries_count(conn)
 
@@ -402,7 +404,7 @@ def test_journal_lines_linked_to_entries(db_engine: Engine) -> None:
         seed_account(conn, "Expenses:Office", type_="expense")
         seed_account(conn, "Expenses:Tax", type_="expense")
         seed_account(conn, "Assets:Bank", type_="asset", is_cash=1)
-        load_accounts(accounts, conn)
+        load_accounts(accounts, conn, item_id="test_journal_item")
         load_journal_entries([entry], conn)
 
         # Verify entry exists
@@ -509,7 +511,7 @@ def test_transform_version_tracked_for_lineage(db_engine: Engine) -> None:
         seed_account(conn, "Expenses:V1", type_="expense")
         seed_account(conn, "Expenses:V2", type_="expense")
         seed_account(conn, "Assets:Bank", type_="asset", is_cash=1)
-        load_accounts(accounts, conn)
+        load_accounts(accounts, conn, item_id="test_version_item")
         load_journal_entries(entries_v1, conn)
         load_journal_entries(entries_v2, conn)
 
@@ -612,7 +614,7 @@ def test_currency_preserved_in_journal_entries(db_engine: Engine) -> None:
         seed_account(conn, "Expenses:CAD", type_="expense")
         seed_account(conn, "Assets:USD", type_="asset", is_cash=1)
         seed_account(conn, "Assets:CAD", type_="asset", is_cash=1)
-        load_accounts(accounts, conn)
+        load_accounts(accounts, conn, item_id="test_currency_item")
         load_journal_entries(entries, conn)
 
         currencies = conn.execute(
@@ -672,7 +674,7 @@ def test_etl_events_rowcounts_recorded(db_engine: Engine) -> None:
     with db_engine.begin() as conn:
         seed_account(conn, "Expenses:Test", type_="expense")
         seed_account(conn, "Assets:Bank", type_="asset", is_cash=1)
-        load_accounts(accounts, conn)
+        load_accounts(accounts, conn, item_id="test_etl_events_item")
         load_journal_entries(entries, conn)
 
         row = conn.execute(
