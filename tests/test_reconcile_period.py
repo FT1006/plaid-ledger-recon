@@ -194,8 +194,8 @@ def test_entry_balance_filters_by_period() -> None:
         )
 
 
-def test_cash_variance_filters_by_period() -> None:
-    """Test that cash variance check only includes journal lines within period."""
+def test_cash_variance_uses_asof_semantics() -> None:
+    """Test that cash variance uses as-of (cumulative) GL balances through period."""
     engine = create_engine("sqlite:///:memory:")
 
     with engine.begin() as conn:
@@ -365,10 +365,12 @@ def test_cash_variance_filters_by_period() -> None:
             conn, period="2024Q1", plaid_balances=plaid_ending_balances_q1
         )
 
-        # Test Q2 reconciliation with end-of-period balance
+        # Test Q2 reconciliation with as-of end-of-period balance
         # Q2 movements: $75 (boundary) + $125 (mid-quarter) = $200 period total
-        # End of Q2 cumulative: $150 (from Q1) + $200 (Q2) = $350
-        plaid_ending_balances_q2 = {"plaid_checking": 200.00}  # Q2 period activity only
+        # End of Q2 cumulative (as-of): $150 (from Q1) + $200 (Q2) = $350 total
+        plaid_ending_balances_q2 = {
+            "plaid_checking": 350.00
+        }  # As-of Q2 end: cumulative
         result_q2 = run_reconciliation(
             conn, period="2024Q2", plaid_balances=plaid_ending_balances_q2
         )
@@ -379,7 +381,7 @@ def test_cash_variance_filters_by_period() -> None:
             0.00, abs=1e-2
         )
 
-        # Q2 should pass variance check (GL Q2 activity: $200, Plaid: $200)
+        # Q2 should pass variance check (GL as-of Q2: $350, Plaid: $350)
         assert result_q2["checks"]["cash_variance"]["passed"] is True
         assert result_q2["checks"]["cash_variance"]["variance"] == pytest.approx(
             0.00, abs=1e-2

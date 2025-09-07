@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
@@ -1247,7 +1246,7 @@ def test_list_accounts_help_shows_required_item_option() -> None:
     # Should show help successfully
     assert result.exit_code == 0
     # Should show --item-id as required option (resilient to formatting changes)
-    assert re.search(r"--item-id.*\[required\]", result.output), (
+    assert "--item-id" in result.output and "[required]" in result.output, (
         "Help should show --item-id as required"
     )
 

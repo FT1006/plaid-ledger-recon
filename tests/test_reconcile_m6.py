@@ -696,8 +696,8 @@ def test_reconcile_coverage_rule_extra_account() -> None:
             conn, period="2024Q1", item_id="item_A", plaid_balances=plaid_balances
         )
 
-        assert result["success"] is False
-        assert result["checks"]["coverage"]["passed"] is False
+        assert result["success"] is True  # Extras are now ignored per ADR
+        assert result["checks"]["coverage"]["passed"] is True
         assert "extra" in result["checks"]["coverage"]
         assert "plaid_unmapped" in result["checks"]["coverage"]["extra"]
         assert result["checks"]["coverage"]["missing"] == []  # No missing, only extra

@@ -792,7 +792,7 @@ def test_coverage_ignores_extras_but_fails_on_missing() -> None:
             plaid_balances=plaid_balances_with_extra,
         )
 
-        assert result["checks"]["coverage"]["passed"] is False
+        assert result["checks"]["coverage"]["passed"] is True  # Extras ignored per ADR
         assert "extra" in result["checks"]["coverage"]
         assert "plaid_unmapped" in result["checks"]["coverage"]["extra"]
 
