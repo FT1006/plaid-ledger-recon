@@ -14,10 +14,15 @@ if TYPE_CHECKING:
     from sqlalchemy.engine import Connection
 
 
-def load_accounts(accounts: list[dict[str, Any]], conn: Connection | None) -> None:
+def load_accounts(accounts: list[dict[str, Any]], conn: Connection | None, *, item_id: str | None = None) -> None:
     """Upsert accounts by plaid_account_id into ingest_accounts shim table.
 
     Uses INSERT ... ON CONFLICT for PostgreSQL, fallback for SQLite tests.
+    
+    Args:
+        accounts: List of account dictionaries from Plaid
+        conn: Database connection
+        item_id: Optional Plaid item ID for item-scoped queries (Step A migration)
     """
     if not accounts:
         return
@@ -31,23 +36,28 @@ def load_accounts(accounts: list[dict[str, Any]], conn: Connection | None) -> No
     if dialect == "postgresql":
         # PostgreSQL: Use raw SQL INSERT ... ON CONFLICT DO UPDATE
         for account in accounts:
+            account_data = {**account, "item_id": item_id}  # None is valid for nullable column
+            
             conn.execute(
                 text("""
                     INSERT INTO ingest_accounts (
-                        plaid_account_id, name, type, subtype, currency
+                        plaid_account_id, name, type, subtype, currency, item_id
                     )
-                    VALUES (:plaid_account_id, :name, :type, :subtype, :currency)
+                    VALUES (:plaid_account_id, :name, :type, :subtype, :currency, :item_id)
                     ON CONFLICT (plaid_account_id) DO UPDATE SET
                         name = EXCLUDED.name,
                         type = EXCLUDED.type,
                         subtype = EXCLUDED.subtype,
-                        currency = EXCLUDED.currency
+                        currency = EXCLUDED.currency,
+                        item_id = EXCLUDED.item_id
                 """),
-                account,
+                account_data,
             )
     else:
         # SQLite (for tests): Manual upsert
         for account in accounts:
+            account_data = {**account}
+            
             # Check if exists
             existing = conn.execute(
                 text(
@@ -57,28 +67,53 @@ def load_accounts(accounts: list[dict[str, Any]], conn: Connection | None) -> No
                 {"pid": account["plaid_account_id"]},
             ).fetchone()
 
-            if existing:
-                # Update
-                conn.execute(
-                    text("""
-                        UPDATE ingest_accounts
-                        SET name = :name, type = :type, subtype = :subtype,
-                            currency = :currency
-                        WHERE plaid_account_id = :plaid_account_id
-                    """),
-                    account,
-                )
+            if item_id is not None:
+                account_data["item_id"] = item_id
+                if existing:
+                    # Update with item_id
+                    conn.execute(
+                        text("""
+                            UPDATE ingest_accounts
+                            SET name = :name, type = :type, subtype = :subtype,
+                                currency = :currency, item_id = :item_id
+                            WHERE plaid_account_id = :plaid_account_id
+                        """),
+                        account_data,
+                    )
+                else:
+                    # Insert with item_id
+                    conn.execute(
+                        text("""
+                            INSERT INTO ingest_accounts (
+                                plaid_account_id, name, type, subtype, currency, item_id
+                            )
+                            VALUES (:plaid_account_id, :name, :type, :subtype, :currency, :item_id)
+                        """),
+                        account_data,
+                    )
             else:
-                # Insert
-                conn.execute(
-                    text("""
-                        INSERT INTO ingest_accounts (
-                            plaid_account_id, name, type, subtype, currency
-                        )
-                        VALUES (:plaid_account_id, :name, :type, :subtype, :currency)
-                    """),
-                    account,
-                )
+                if existing:
+                    # Update without item_id (backward compatibility)
+                    conn.execute(
+                        text("""
+                            UPDATE ingest_accounts
+                            SET name = :name, type = :type, subtype = :subtype,
+                                currency = :currency
+                            WHERE plaid_account_id = :plaid_account_id
+                        """),
+                        account_data,
+                    )
+                else:
+                    # Insert without item_id (backward compatibility)
+                    conn.execute(
+                        text("""
+                            INSERT INTO ingest_accounts (
+                                plaid_account_id, name, type, subtype, currency
+                            )
+                            VALUES (:plaid_account_id, :name, :type, :subtype, :currency)
+                        """),
+                        account_data,
+                    )
 
 
 def _validate_lineage(entry: dict[str, Any]) -> None:
