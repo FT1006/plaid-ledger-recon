@@ -214,6 +214,9 @@ def check_coverage(
 ) -> dict[str, Any]:
     """Validate coverage of mapped cash accounts against provided balances.
 
+    Extras in plaid_balances are ignored (not required for coverage).
+    Only fails if mapped cash accounts are missing from plaid_balances.
+
     Args:
         conn: Database connection
         item_id: Optional item ID (not used for coverage, but for consistency)
@@ -231,10 +234,10 @@ def check_coverage(
     extras_ignored = sorted(provided - required)
 
     return {
-        "passed": len(missing) == 0
-        and len(extras_ignored) == 0,  # Fail on both missing and extra
+        "passed": len(missing) == 0,  # Only fail on missing mapped cash accounts
         "missing": missing,
         "extra": extras_ignored,  # Keep original field name
+        "extras_ignored": extras_ignored,  # New field name for clarity
     }
 
 
