@@ -1254,8 +1254,8 @@ def test_list_accounts_help_shows_required_item_option() -> None:
     # Should show help successfully
     assert result.exit_code == 0
     text = result.stdout or result.output
-    # More flexible - handle styled output
-    assert "item-id" in text
+    # Handle ANSI escape codes in styled output by checking for required option pattern
+    assert "--item" in text and "required" in text
 
     # More robust than exact "[required]" - verify command fails without --item-id
     with (
