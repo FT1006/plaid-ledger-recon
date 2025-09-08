@@ -89,5 +89,6 @@ flowchart TB
   * Any breach → non-zero exit.
 * **Reports:** Deterministic HTML (`bs_2024Q1.html`, `cf_2024Q1.html`) with graceful PDF fallback when WeasyPrint unavailable.
 * **CLI Interface:** `init-db`, `onboard`, `ingest`, `map-account`, `reconcile`, `report`. Sandbox-only onboarding in MVP.
-* **Dual Population:** `ingest` populates both `ingest_accounts` (legacy shim) and `plaid_accounts` (canonical) for backward compatibility.
+* **Dual Population:** `ingest` populates both `ingest_accounts` (item-scoped mapping with composite PK) and `plaid_accounts` (canonical) for backward compatibility.
+* **Item-Scoped Accounts:** `ingest_accounts` uses composite PRIMARY KEY (item_id, plaid_account_id) to enable multi-item management and prevent account ID collisions.
 * **Account Mapping:** User-driven via `map-account` CLI command creates explicit `account_links` for audit-ready reconciliation.
