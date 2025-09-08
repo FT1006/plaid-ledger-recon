@@ -48,13 +48,16 @@ def test_journal_entries_item_date_index_exists_postgres() -> None:
             conn.commit()
 
             # Check if index exists using pg_indexes system catalog
-            row = conn.execute(text("""
+            row = conn.execute(
+                text("""
                 SELECT indexname, indexdef
                 FROM pg_indexes
                 WHERE schemaname = :schema_name
                   AND tablename = 'journal_entries'
                   AND indexname = 'idx_journal_entries_item_date'
-            """), {"schema_name": schema_name}).fetchone()
+            """),
+                {"schema_name": schema_name},
+            ).fetchone()
 
             assert row, (
                 "Missing performance index idx_journal_entries_item_date. "
@@ -113,27 +116,35 @@ def test_reconcile_query_uses_item_date_index_postgres() -> None:
 
             # Seed minimal data to make planner behavior deterministic
             # Use integer PKs to avoid UUID extension dependency
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 INSERT INTO journal_entries(id, txn_id, txn_date, description,
                                            currency, source_hash, transform_version,
                                            item_id)
                 SELECT gen_random_uuid(), 'seed', '2024-03-31', 'seed', 'USD',
                        'h', 1, 'test_item_123'
-            """))
+            """)
+            )
 
             # Get the entry_id and a valid account_id for the journal_lines FK
-            entry_id = conn.execute(text(
-                "SELECT id FROM journal_entries WHERE txn_id = 'seed'"
-            )).scalar()
+            entry_id = conn.execute(
+                text("SELECT id FROM journal_entries WHERE txn_id = 'seed'")
+            ).scalar()
 
-            account_id = conn.execute(text(
-                "SELECT id FROM accounts WHERE code = 'Assets:Bank:Checking' LIMIT 1"
-            )).scalar()
+            account_id = conn.execute(
+                text(
+                    "SELECT id FROM accounts "
+                    "WHERE code = 'Assets:Bank:Checking' LIMIT 1"
+                )
+            ).scalar()
 
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 INSERT INTO journal_lines(id, entry_id, account_id, side, amount)
                 VALUES (gen_random_uuid(), :entry_id, :account_id, 'debit', 0.00)
-            """), {"entry_id": entry_id, "account_id": account_id})
+            """),
+                {"entry_id": entry_id, "account_id": account_id},
+            )
 
             conn.commit()
 
@@ -141,16 +152,16 @@ def test_reconcile_query_uses_item_date_index_postgres() -> None:
             conn.execute(text("SET enable_seqscan = off"))
 
             # Test the critical reconciliation query pattern
-            plan_rows = conn.execute(text("""
+            plan_rows = conn.execute(
+                text("""
                 EXPLAIN (FORMAT TEXT)
                 SELECT je.id
                 FROM journal_entries je
                 JOIN journal_lines jl ON je.id = jl.entry_id
                 WHERE je.item_id = :item_id AND je.txn_date <= :period_end
-            """), {
-                "item_id": "test_item_123",
-                "period_end": "2024-03-31"
-            }).fetchall()
+            """),
+                {"item_id": "test_item_123", "period_end": "2024-03-31"},
+            ).fetchall()
 
             plan_text = "\n".join(row[0] for row in plan_rows)
 

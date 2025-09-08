@@ -35,9 +35,9 @@ def test_journal_entries_item_date_index_exists_sqlite(tmp_path: Path) -> None:
         )
 
         # Check column order is (item_id, txn_date)
-        col_rows = conn.execute(text(
-            "PRAGMA index_info('idx_journal_entries_item_date')"
-        )).fetchall()
+        col_rows = conn.execute(
+            text("PRAGMA index_info('idx_journal_entries_item_date')")
+        ).fetchall()
         col_names = [row[2] for row in col_rows]  # row[2] = column name
 
         assert col_names == ["item_id", "txn_date"], (
