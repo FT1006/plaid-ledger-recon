@@ -13,6 +13,7 @@ This project uses a canonical GL with FK integrity and explicit Plaid→GL mappi
 - `currency` CHAR(3) NOT NULL DEFAULT 'USD'
 - `is_cash` BOOLEAN NOT NULL DEFAULT false
 - `active` BOOLEAN NOT NULL DEFAULT true
+- `created_at` TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
 Indexes: `idx_accounts_code`, `idx_accounts_type`, `idx_accounts_is_cash`.
 
@@ -22,6 +23,10 @@ Indexes: `idx_accounts_code`, `idx_accounts_type`, `idx_accounts_is_cash`.
 - `type` TEXT NOT NULL
 - `subtype` TEXT NOT NULL
 - `currency` CHAR(3) NOT NULL DEFAULT 'USD'
+- `created_at` TIMESTAMPTZ NOT NULL DEFAULT NOW()
+
+**Note:** No `item_id` column by design. Item association is derived via:
+`raw_transactions.item_id → journal_entries.txn_id → plaid_account_id` or through `ingest_accounts.item_id`
 
 ### `account_links` (explicit 1:1 Plaid→GL mapping)
 - `id` UUID PRIMARY KEY DEFAULT gen_random_uuid()
@@ -29,12 +34,18 @@ Indexes: `idx_accounts_code`, `idx_accounts_type`, `idx_accounts_is_cash`.
 - `account_id` UUID NOT NULL REFERENCES `accounts`(id) ON DELETE RESTRICT
 - `created_at` TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
-### `ingest_accounts` (shim; legacy staging)
-- `plaid_account_id` TEXT PRIMARY KEY
+### `ingest_accounts` (item-scoped mapping; legacy staging)
+- `item_id` TEXT NOT NULL
+- `plaid_account_id` TEXT NOT NULL
 - `name` TEXT NOT NULL
 - `type` TEXT NOT NULL
 - `subtype` TEXT NOT NULL
 - `currency` TEXT NOT NULL
+- **PRIMARY KEY (`item_id`, `plaid_account_id`)**
+
+**Note:** Composite primary key enables multi-item account management and eliminates account ID collisions across different Plaid items. Each (item_id, plaid_account_id) pair represents a unique account within the system.
+
+Indexes: `idx_ingest_accounts_item_id`.
 
 ### `journal_entries`
 - `id` UUID PRIMARY KEY DEFAULT gen_random_uuid()
@@ -47,7 +58,7 @@ Indexes: `idx_accounts_code`, `idx_accounts_type`, `idx_accounts_is_cash`.
 - `ingested_at` TIMESTAMPTZ NOT NULL DEFAULT NOW()
 - `transform_version` INTEGER NOT NULL
 
-Indexes: `idx_journal_entries_date`, `idx_journal_entries_txn`, `idx_journal_entries_hash`.
+Indexes: `idx_journal_entries_date`, `idx_journal_entries_txn`, `idx_journal_entries_hash`, `idx_journal_entries_item_date`.
 
 ### `journal_lines`
 - `id` UUID PRIMARY KEY DEFAULT gen_random_uuid()
@@ -55,6 +66,7 @@ Indexes: `idx_journal_entries_date`, `idx_journal_entries_txn`, `idx_journal_ent
 - `account_id` UUID NOT NULL REFERENCES `accounts`(id) ON DELETE RESTRICT
 - `side` TEXT NOT NULL CHECK (side IN ('debit','credit'))
 - `amount` NUMERIC(18,2) NOT NULL CHECK (amount >= 0)
+- `created_at` TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
 Indexes: `idx_journal_lines_entry`, `idx_journal_lines_account`.
 
@@ -75,6 +87,12 @@ Indexes: `idx_journal_lines_entry`, `idx_journal_lines_account`.
 - `success` BOOLEAN NOT NULL
 
 Indexes: `idx_etl_events_type`, `idx_etl_events_started`.
+
+## Required Indexes (Performance Contract)
+- **`journal_entries(item_id, txn_date)`** → `idx_journal_entries_item_date` (non-unique, btree)
+  - **Critical query:** `WHERE je.item_id = :item_id AND je.txn_date <= :period_end` (item-scoped reconciliation)
+  - **Without this index:** Full table scan on large datasets → unacceptable performance degradation
+- **Single-column indexes maintained:** `txn_date`, `txn_id`, `source_hash` (functional requirements)
 
 ## Invariants
 - Double-entry: each journal entry balances (∑debits == ∑credits).
