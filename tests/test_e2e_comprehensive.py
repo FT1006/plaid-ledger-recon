@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
 
 @pytest.mark.e2e
+@pytest.mark.integration
 def test_complete_quick_start_flow(compose_services: Any, tmp_path: Path) -> None:  # noqa: PLR0912, PLR0915, ARG001
     """Test the complete Quick Start flow from README.
 

@@ -1006,8 +1006,8 @@ def test_reconcile_requires_out_parameter(tmp_path: Path) -> None:
 
     # Should fail with usage error (exit 2)
     assert result.exit_code == 2
-    # Confirm we're in the usage error path (Typer automatically includes this)
-    assert "Usage: pfetl reconcile" in result.output
+    # Confirm we're in the usage error path (more flexible for styled output)
+    assert "pfetl reconcile" in result.output and "Usage:" in result.output
     # Typer will show missing required option error
     assert "Missing option" in result.output or "required" in result.output.lower()
 
@@ -1254,7 +1254,8 @@ def test_list_accounts_help_shows_required_item_option() -> None:
     # Should show help successfully
     assert result.exit_code == 0
     text = result.stdout or result.output
-    assert "--item-id" in text
+    # More flexible - handle styled output
+    assert "item-id" in text
 
     # More robust than exact "[required]" - verify command fails without --item-id
     with (
