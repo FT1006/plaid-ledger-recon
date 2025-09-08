@@ -18,7 +18,6 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-@pytest.mark.integration
 def test_journal_entries_item_date_index_exists_postgres() -> None:
     """Test idx_journal_entries_item_date exists with correct definition in PostgreSQL.
 
@@ -85,7 +84,6 @@ def test_journal_entries_item_date_index_exists_postgres() -> None:
                 conn.commit()
 
 
-@pytest.mark.integration
 def test_reconcile_query_uses_item_date_index_postgres() -> None:
     """Test reconciliation queries use performance index (optional runtime check).
 

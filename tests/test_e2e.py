@@ -27,6 +27,15 @@ if not (
         allow_module_level=True,
     )
 
+# Skip E2E if Plaid credentials are mock/fake (belt & suspenders)
+MOCK_VALUES = {"mock_client_id", "mock_secret", "fake_client_id", "fake_secret"}
+cid, sec = os.getenv("PLAID_CLIENT_ID"), os.getenv("PLAID_SECRET")
+
+if not cid or not sec or cid in MOCK_VALUES or sec in MOCK_VALUES:
+    pytest.skip(
+        "Real Plaid sandbox credentials required for E2E", allow_module_level=True
+    )
+
 if TYPE_CHECKING:
     from collections.abc import Generator
 
@@ -89,7 +98,9 @@ def compose_services() -> Generator[None, None, None]:
 
         # Optional: Skip if outbound HTTP egress to Plaid sandbox is unavailable
         try:
-            with httpx.Client(timeout=httpx.Timeout(connect=3.0, read=3.0)) as client:
+            with httpx.Client(
+                timeout=httpx.Timeout(5.0, connect=3.0, read=3.0)
+            ) as client:
                 # Any HTTPStatusError proves egress works; only connect/timeout skip
                 resp = client.get(
                     "https://sandbox.plaid.com/",
@@ -145,10 +156,6 @@ def test_e2e_full_ingest_pipeline(compose_services: Any) -> None:  # noqa: ARG00
     4. Idempotency on re-run
     """
     load_dotenv()
-
-    # Skip if no Plaid credentials
-    if not os.getenv("PLAID_CLIENT_ID") or not os.getenv("PLAID_SECRET"):
-        pytest.skip("Plaid credentials not configured")
 
     database_url = os.getenv("DATABASE_URL")
     if not database_url:

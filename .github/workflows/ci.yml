@@ -26,6 +26,7 @@ jobs:
         with:
           python-version: '3.11'
           cache: 'pip'
+          cache-dependency-path: '**/pyproject.toml'
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -42,6 +43,7 @@ jobs:
         with:
           python-version: '3.11'
           cache: 'pip'
+          cache-dependency-path: '**/pyproject.toml'
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -52,47 +54,32 @@ jobs:
   mypy:
     name: Type Checking (mypy)
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_DB: pfetl
-          POSTGRES_USER: pfetl_user
-          POSTGRES_PASSWORD: pfetl_password
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
+    env:
+      PFETL_SKIP_DOTENV: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
+          cache-dependency-path: '**/pyproject.toml'
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -e .[dev]
-      - name: Wait for Postgres
-        run: |
-          for i in {1..30}; do
-            pg_isready -h localhost -p 5432 -d pfetl -U pfetl_user && break
-            sleep 1
-          done
-      - name: Initialize database
-        run: pfetl init-db || python cli.py init-db
       - name: Type check
         run: mypy etl/ cli.py
 
   test-unit:
     name: Unit Tests (pytest -m "not integration")
+    needs: [ruff-format, ruff-lint, mypy]
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: "postgresql://pfetl_user:pfetl_password@localhost:5432/pfetl"
       PFETL_SKIP_DOTENV: "1"
+      PLAID_CLIENT_ID: mock_client_id
+      PLAID_SECRET: mock_secret
+      PLAID_ENV: sandbox
     services:
       postgres:
         image: postgres:16
@@ -113,6 +100,7 @@ jobs:
         with:
           python-version: '3.11'
           cache: 'pip'
+          cache-dependency-path: '**/pyproject.toml'
       - name: Install WeasyPrint system dependencies
         run: |
           sudo apt-get update
@@ -136,16 +124,37 @@ jobs:
           done
       - name: Initialize database
         run: pfetl init-db || python cli.py init-db
-      - name: Run unit tests (including reports)
-        run: python -m pytest tests/ -v -m "not integration"
+      - name: Run unit tests with coverage
+        run: |
+          pytest -m "not integration" --cov=etl --cov-report=xml --cov-report=term-missing --cov-fail-under=50 -v
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+      - name: Upload test artifacts (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-artifacts-${{ github.job }}
+          path: |
+            build/**/*.json
+            .pytest_cache/**/*
+            **/junit-*.xml
+            tests/golden/*.html
+          if-no-files-found: ignore
 
   test-integration:
     name: Integration Tests (mocked Plaid)
+    needs: [test-unit]
     runs-on: ubuntu-latest
     if: github.event_name != 'schedule'  # Skip on nightly runs
     env:
       DATABASE_URL: "postgresql://pfetl_user:pfetl_password@localhost:5432/pfetl"
       PFETL_SKIP_DOTENV: "1"
+      PLAID_CLIENT_ID: mock_client_id
+      PLAID_SECRET: mock_secret
+      PLAID_ENV: sandbox
     services:
       postgres:
         image: postgres:16
@@ -166,6 +175,7 @@ jobs:
         with:
           python-version: '3.11'
           cache: 'pip'
+          cache-dependency-path: '**/pyproject.toml'
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -180,9 +190,23 @@ jobs:
         run: pfetl init-db || python cli.py init-db
       - name: Run integration tests
         run: python -m pytest tests/ -v -m "integration" --tb=short
+      - name: Upload test artifacts (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-artifacts-${{ github.job }}
+          path: |
+            build/**/*.json
+            .pytest_cache/**/*
+            **/junit-*.xml
+            tests/golden/*.html
+          if-no-files-found: ignore
 
-  test-e2e-pipeline:
-    name: E2E Pipeline (mocked for PRs, real for nightly)
+  test-e2e-lite:
+    name: E2E-lite (deterministic, no Plaid)
+    needs: [test-integration]
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -201,16 +225,13 @@ jobs:
     env:
       DATABASE_URL: "postgresql://pfetl_user:pfetl_password@localhost:5432/pfetl"
       PFETL_SKIP_DOTENV: "1"
-      # For nightly runs, use real credentials from secrets
-      PLAID_CLIENT_ID: ${{ github.event_name == 'schedule' && secrets.PLAID_CLIENT_ID || 'mock_client_id' }}
-      PLAID_SECRET: ${{ github.event_name == 'schedule' && secrets.PLAID_SECRET || 'mock_secret' }}
-      PLAID_ENV: ${{ github.event_name == 'schedule' && 'sandbox' || 'sandbox' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
+          cache-dependency-path: '**/pyproject.toml'
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -223,15 +244,69 @@ jobs:
           done
       - name: Initialize database
         run: pfetl init-db || python cli.py init-db
-      - name: Run E2E pipeline (mocked)
-        env:
-          CI: true
-        run: python -m pytest tests/test_e2e.py -v --tb=short
+      - name: Seed chart of accounts
+        run: |
+          PGPASSWORD=pfetl_password psql -h localhost -U pfetl_user -d pfetl -f etl/seed_coa.sql
+      - name: Map demo Plaid account to a cash GL account
+        run: |
+          PGPASSWORD=pfetl_password psql -h localhost -U pfetl_user -d pfetl -c "
+            INSERT INTO plaid_accounts (plaid_account_id, name, type, subtype, currency)
+            VALUES ('demo_cash_account', 'Demo Cash Account', 'depository', 'checking', 'USD');
+            INSERT INTO account_links (plaid_account_id, account_id)
+            SELECT 'demo_cash_account', id
+            FROM accounts
+            WHERE is_cash = TRUE
+            LIMIT 1;"
+      - name: Seed a zero-sum entry for demo-item
+        run: |
+          PGPASSWORD=pfetl_password psql -h localhost -U pfetl_user -d pfetl -c "
+            BEGIN;
+            INSERT INTO journal_entries (id, txn_id, txn_date, description, currency, source_hash, transform_version, item_id)
+            VALUES ('00000000-0000-0000-0000-000000000001'::uuid, 'demo-txn-1', '2024-03-31', 'Demo', 'USD', 'hash', 1, 'demo-item');
+            WITH cash AS (SELECT id FROM accounts WHERE is_cash = TRUE LIMIT 1),
+                 other AS (SELECT id FROM accounts WHERE is_cash = FALSE LIMIT 1)
+            INSERT INTO journal_lines (entry_id, account_id, side, amount)
+            SELECT '00000000-0000-0000-0000-000000000001'::uuid, (SELECT id FROM cash), 'debit', 0.00
+            UNION ALL
+            SELECT '00000000-0000-0000-0000-000000000001'::uuid, (SELECT id FROM other), 'credit', 0.00;
+            COMMIT;"
+      - name: Generate demo balances from GL
+        run: |
+          mkdir -p build
+          PGPASSWORD=pfetl_password psql -h localhost -U pfetl_user -d pfetl -t -A -c "
+          WITH cash_accts AS ( 
+            SELECT a.id, 'demo_cash_account' as plaid_account_id
+            FROM accounts a 
+            WHERE a.is_cash = TRUE 
+            LIMIT 1
+          ), gl_bal AS ( 
+            SELECT ca.plaid_account_id, 0.00 AS bal
+            FROM cash_accts ca
+          ) 
+          SELECT COALESCE(json_object_agg(plaid_account_id, bal), '{}'::json) FROM gl_bal;" \
+          > build/demo_balances.json
+      - name: Test reconcile with deterministic balances
+        run: |
+          pfetl reconcile --item-id demo-item --period 2024Q1 \
+            --balances-json build/demo_balances.json --out build/recon.json
+      - name: Upload test artifacts (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-artifacts-${{ github.job }}
+          path: |
+            build/**/*.json
+            .pytest_cache/**/*
+            **/junit-*.xml
+            tests/golden/*.html
+          if-no-files-found: ignore
 
-  nightly-real-plaid:
-    name: Nightly with Real Plaid (Sandbox)
+  test-e2e-real:
+    name: E2E Pipeline (real Plaid credentials)
+    needs: [test-unit]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'  # Run on push to main only
+    timeout-minutes: 20
     runs-on: ubuntu-latest
-    if: github.event_name == 'schedule'
     services:
       postgres:
         image: postgres:16
@@ -247,6 +322,8 @@ jobs:
         ports:
           - 5432:5432
     env:
+      DATABASE_URL: "postgresql://pfetl_user:pfetl_password@localhost:5432/pfetl"
+      PFETL_SKIP_DOTENV: "1"
       PLAID_CLIENT_ID: ${{ secrets.PLAID_CLIENT_ID }}
       PLAID_SECRET: ${{ secrets.PLAID_SECRET }}
       PLAID_ENV: sandbox
@@ -256,6 +333,68 @@ jobs:
         with:
           python-version: '3.11'
           cache: 'pip'
+          cache-dependency-path: '**/pyproject.toml'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+      - name: Wait for Postgres
+        run: |
+          for i in {1..30}; do
+            pg_isready -h localhost -p 5432 -d pfetl -U pfetl_user && break
+            sleep 1
+          done
+      - name: Initialize database
+        run: pfetl init-db || python cli.py init-db
+      - name: Seed chart of accounts
+        run: |
+          PGPASSWORD=pfetl_password psql -h localhost -U pfetl_user -d pfetl -f etl/seed_coa.sql
+      - name: Run E2E pipeline (real Plaid)
+        run: python -m pytest tests/test_e2e.py -v --tb=short
+      - name: Upload test artifacts (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-artifacts-${{ github.job }}
+          path: |
+            build/**/*.json
+            .pytest_cache/**/*
+            **/junit-*.xml
+            tests/golden/*.html
+          if-no-files-found: ignore
+
+  nightly-real-plaid:
+    name: Nightly with Real Plaid (Sandbox)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: "postgresql://pfetl_user:pfetl_password@localhost:5432/pfetl"
+      PFETL_SKIP_DOTENV: "1"
+      PLAID_CLIENT_ID: ${{ secrets.PLAID_CLIENT_ID }}
+      PLAID_SECRET: ${{ secrets.PLAID_SECRET }}
+      PLAID_ENV: sandbox
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: pfetl
+          POSTGRES_USER: pfetl_user
+          POSTGRES_PASSWORD: pfetl_password
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: '**/pyproject.toml'
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
