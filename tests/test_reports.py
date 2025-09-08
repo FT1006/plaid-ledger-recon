@@ -127,7 +127,7 @@ def test_balance_sheet_html_matches_golden_snapshot(db_engine: Engine) -> None:
 
     Per ADR: HTML reports must be deterministic for audit compliance.
     """
-    from etl.reports.render import render_balance_sheet  # noqa: PLC0415
+    from etl.reports.render import render_balance_sheet
 
     html = render_balance_sheet("2024Q1", db_engine)
     actual_hash = hash_html(html)
@@ -159,7 +159,7 @@ def test_cash_flow_html_matches_golden_snapshot(db_engine: Engine) -> None:
 
     Per ADR: HTML reports must be deterministic for audit compliance.
     """
-    from etl.reports.render import render_cash_flow  # noqa: PLC0415
+    from etl.reports.render import render_cash_flow
 
     html = render_cash_flow("2024Q1", db_engine)
     actual_hash = hash_html(html)
@@ -193,7 +193,7 @@ def test_pdf_is_emitted_but_not_snapshotted(db_engine: Engine) -> None:
     Per ADR: PDFs are tested for existence only, not content.
     Binary format varies by environment and WeasyPrint version.
     """
-    from etl.reports.render import (  # noqa: PLC0415
+    from etl.reports.render import (
         render_balance_sheet,
         write_pdf,
     )
@@ -218,7 +218,7 @@ def test_running_report_twice_produces_identical_html_hash(db_engine: Engine) ->
     Per ADR: Reports must be deterministic for audit reproducibility.
     No timestamps, random IDs, or env-dependent values allowed.
     """
-    from etl.reports.render import render_balance_sheet  # noqa: PLC0415
+    from etl.reports.render import render_balance_sheet
 
     # Run report twice with identical inputs
     html1 = render_balance_sheet("2024Q1", db_engine)

@@ -10,6 +10,7 @@ Set via environment variables (`.env`).
 | `PLAID_ACCESS_TOKEN` | set by onboard | `access-sandbox-...` | Saved by `--write-env` |
 | `PLAID_ITEM_ID` | set by onboard | `item-sandbox-...` | Saved by `--write-env` |
 | `DATABASE_URL` | yes | `postgresql://pfetl_user:pfetl_password@localhost:5432/pfetl` | Required by CLI; extract module has fallback default |
+| `PFETL_AUTO_CREATE_ACCOUNTS` | no | `true` | **Not implemented** - Mentioned in error messages but intentionally disabled in MVP (audit design choice) |
 
 Optional tuning (defaults baked in code):
 - HTTP timeouts (connect=5s, read=15s, write=10s, pool=10s)

@@ -225,7 +225,9 @@ def ingest(
         engine = create_engine(database_url)
         with engine.begin() as conn:
             upsert_plaid_accounts(plaid_accts, conn)  # New canonical table
-            load_accounts(load_accts, conn, item_id=item_id)  # Legacy shim (kept for now)
+            load_accounts(
+                load_accts, conn, item_id=item_id
+            )  # Legacy shim (kept for now)
             load_journal_entries(entries, conn)
 
         typer.echo(f"{_mark_success()} Ingested {len(txns)} transactions.")
