@@ -95,6 +95,8 @@ CREATE TABLE IF NOT EXISTS journal_entries (
 CREATE INDEX IF NOT EXISTS idx_journal_entries_date ON journal_entries(txn_date);
 CREATE INDEX IF NOT EXISTS idx_journal_entries_txn  ON journal_entries(txn_id);
 CREATE INDEX IF NOT EXISTS idx_journal_entries_hash ON journal_entries(source_hash);
+-- Performance index for item-scoped reconciliation queries
+CREATE INDEX IF NOT EXISTS idx_journal_entries_item_date ON journal_entries(item_id, txn_date);
 
 -- 4) Journal lines - Updated with FK to canonical GL accounts
 CREATE TABLE IF NOT EXISTS journal_lines (
