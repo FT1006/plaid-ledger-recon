@@ -45,9 +45,11 @@ def test_complete_quick_start_flow(compose_services: Any, tmp_path: Path) -> Non
     """
     load_dotenv()
 
-    # Use existing credentials or skip
-    if not os.getenv("PLAID_CLIENT_ID") or not os.getenv("PLAID_SECRET"):
-        pytest.skip("Plaid credentials not configured")
+    # Use existing credentials or skip (require real credentials, not mock)
+    mock_values = {"mock_client_id", "mock_secret", "fake_client_id", "fake_secret"}
+    cid, sec = os.getenv("PLAID_CLIENT_ID"), os.getenv("PLAID_SECRET")
+    if not cid or not sec or cid in mock_values or sec in mock_values:
+        pytest.skip("Real Plaid sandbox credentials required for comprehensive E2E")
 
     database_url = os.getenv(
         "DATABASE_URL", "postgresql://pfetl_user:pfetl_password@localhost:5432/pfetl"

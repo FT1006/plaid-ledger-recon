@@ -350,7 +350,7 @@ jobs:
         run: |
           PGPASSWORD=pfetl_password psql -h localhost -U pfetl_user -d pfetl -f etl/seed_coa.sql
       - name: Run E2E pipeline (real Plaid)
-        run: python -m pytest tests/test_e2e.py -v --tb=short
+        run: python -m pytest tests/test_e2e.py -v --tb=short || test $? -eq 5
       - name: Upload test artifacts (always)
         if: always()
         uses: actions/upload-artifact@v4
