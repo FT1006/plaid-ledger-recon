@@ -67,6 +67,82 @@ flowchart TB
   REP --> OUT2[(HTML/PDF)]
 ```
 
+### 1) Ledger (ETL + Canonical GL + Idempotency)
+
+```mermaid
+flowchart TD
+  A["Plaid API (sandbox)"] --> E[Extract]
+  E --> RAW[(raw_transactions)]
+  E --> PA[(plaid_accounts)]
+  E --> IACC[(ingest_accounts)]
+
+  E --> T["Transform (COA rules → GL codes)"]
+  T --> M{Mapping exists in<br/>account_links?}
+  M -- No --> X1[[Fail-fast: unmapped plaid_account_id]]:::fail
+  M -- Yes --> L[Load]
+
+  L --> D{txn_id already seen?}
+  D -- Yes --> U["Upsert/Skip (idempotent)"]
+  D -- No --> JE[(journal_entries)] & JL[(journal_lines)]
+
+  JL --> FK{accounts.id FK ok?}
+  FK -- No --> X2[[Fail-fast: FK violation]]:::fail
+  FK -- Yes --> EVT[(etl_events: ingest)]:::event
+
+  classDef fail fill:#ffe6e6,stroke:#ff5a5a,color:#b30000,stroke-width:1.5px;
+  classDef event fill:#eef7ff,stroke:#5aa9ff,color:#0b3d91,stroke-width:1.5px;
+
+```
+
+**What this highlights (for reviewers):** explicit mapping, FK-enforced ledger, duplicate protection via `txn_id`, and fail-fast philosophy.
+
+---
+
+### 2) Reconcile (AS-OF Ending Balance, Coverage, Item Scoping)
+
+```mermaid
+sequenceDiagram
+    participant U as CLI: pfetl reconcile
+    participant FS as Filesystem
+    participant P as Plaid API (optional)
+    participant DB as Postgres
+    participant R as ReconcileCore (pure)
+
+    U->>U: Parse args
+    Note over U: Enforce one-of: balances-json XOR use-plaid-live
+
+    alt Deterministic JSON
+        U->>FS: Read balances.json ({plaid_account_id: ending_balance})
+        FS-->>U: External balances
+    else Live Plaid
+        U->>P: /accounts/balance/get (item access token)
+        P-->>U: External balances
+    end
+
+    U->>DB: SELECT M = mapped cash accounts for item_id
+    DB-->>U: M
+
+    U->>R: run_reconciliation(M, balances, period)
+    R->>R: Check coverage: balances cover ALL accounts in M?
+
+    alt Missing coverage
+        R-->>U: Error: list missing plaid_account_ids
+        U->>FS: write recon.json (failed checks)
+        U->>DB: INSERT etl_events(reconcile, success=false, ...)
+        U-->>U: exit 1
+    else Coverage OK
+        R->>DB: GL_asof per account (Σdebits − Σcredits) where txn_date ≤ period_end AND item_id=...
+        DB-->>R: GL amounts
+        R-->>U: Result {by_account, total_variance, gates}
+        U->>FS: write recon.json
+        U->>DB: INSERT etl_events(reconcile, success=passed, ...)
+        U-->>U: exit 0/1
+    end
+```
+
+*Drop a one-line caption right below:*
+**Formula:** `GL_asof = Σ(debits) − Σ(credits)` over **mapped `is_cash=TRUE`** accounts with `txn_date ≤ period_end`, filtered by `item_id`.
+
 ## Key properties
 
 * **Pagination & Retry:** bounded attempts on 429/5xx with jittered backoff.
