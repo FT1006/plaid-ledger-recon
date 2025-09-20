@@ -4,6 +4,20 @@
 **Plaid → Postgres → Reconciled Balance Sheet & Cash Flow**
 *A minimal, audit-ready financial automation demo.*
 
+## 🚀 Quick Start Success = 2 Commands, ≤90s, Produces recon.json + HTML
+
+```bash
+# Tier 0: Offline Demo (SQLite + fixtures, no dependencies, ≤90s)
+make demo-offline
+
+# Tier 1: Docker Demo (Postgres + fixtures, deterministic output)
+make demo-docker
+```
+
+**Results**: `build/demo_recon.json` (reconciliation), `build/demo_bs_2024q1.html` (balance sheet), `build/demo_cf_2024q1.html` (cash flow)
+
+---
+
 `plaid-ledger-recon` is a **CLI tool** that ingests bank data from the **Plaid Sandbox**, transforms it into a **double-entry ledger**, enforces **reconciliation gates**, and generates **deterministic reports** (Balance Sheet, Cash Flow) in HTML and PDF.
 
 It's designed to feel like **"one-command audit automation"**: simple to onboard, transparent in failure, and reproducible.
@@ -272,48 +286,31 @@ DATABASE_URL=postgresql://pfetl_user:pfetl_password@localhost:5432/pfetl
 
 ## Quick Start
 
+### Tier 0: Offline Demo (≤90s, no credentials required)
 ```bash
-# 0. One-time setup
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -e ".[core]"
+make demo-offline
+```
+Generates `build/demo_recon.json` + HTML reports using SQLite + fixtures.
 
-# 1. Spin up infra (Postgres only)
-make db-up
+### Tier 1: Docker Demo (deterministic)
+```bash
+make demo-docker
+```
+Same output as Tier 0, but uses Postgres via Docker for full stack testing.
 
-# 2. Set environment (or use a .env file)
+### Tier 2: Sandbox Integration (requires Plaid credentials)
+```bash
+# Setup
 export PLAID_CLIENT_ID=your_sandbox_client_id
 export PLAID_SECRET=your_sandbox_secret
-export PLAID_ENV=sandbox
-export DATABASE_URL=postgresql://pfetl_user:pfetl_password@localhost:5432/pfetl
+make db-up && pfetl init-db && make seed-coa
 
-# 3. Run 2-minute demo
-pfetl init-db
-make seed-coa
-pfetl onboard --sandbox --write-env
-source .env
-
+# Run sandbox flow
+pfetl onboard --sandbox --write-env && source .env
 pfetl ingest --item-id $PLAID_ITEM_ID --from 2024-01-01 --to 2024-03-31
-pfetl list-plaid-accounts --item-id $PLAID_ITEM_ID  # Note: requires ingest first to scope by item
-
-# Map ALL cash accounts (required for reconciliation to pass)
-pfetl map-account --plaid-account-id <CHECKING_ID> --gl-code "Assets:Bank:Checking"
-pfetl map-account --plaid-account-id <SAVINGS_ID> --gl-code "Assets:Bank:Savings"
-pfetl map-account --plaid-account-id <MONEY_MARKET_ID> --gl-code "Assets:Bank:MoneyMarket"
-# Continue for all depository accounts shown by list-plaid-accounts
-
-make demo-balances             # writes build/demo_balances.json (as-of PERIOD_END)
-
-# Deterministic mode (demo/CI) - uses JSON file for reproducible results
-pfetl reconcile --item-id $PLAID_ITEM_ID --period 2024Q1 \
-  --balances-json build/demo_balances.json \
-  --out build/recon.json
-
-# OR Production mode - uses live Plaid API balances (non-deterministic)  
-# pfetl reconcile --item-id $PLAID_ITEM_ID --period 2024Q1 \
-#   --use-plaid-live \
-#   --out build/recon.json
-
-# Reconciliation compares GL ending balances to external balances for all mapped cash accounts
+pfetl map-account --plaid-account-id <ID> --gl-code "Assets:Bank:Checking"
+pfetl reconcile --item-id $PLAID_ITEM_ID --period 2024Q1 --balances-json build/demo_balances.json --out build/recon.json
 pfetl report --item-id $PLAID_ITEM_ID --period 2024Q1 --formats html --out build/
 ```
 
@@ -332,6 +329,9 @@ See [docs/ONBOARDING.md](docs/ONBOARDING.md) for detailed setup.
 
 | Target                 | Description                                       |
 | ---------------------- | ------------------------------------------------- |
+| `make demo-offline`  | Quick offline demo (SQLite + fixtures, ≤90s)     |
+| `make demo-docker`   | Docker demo (Postgres + fixtures, deterministic) |
+| `make demo-sandbox`  | Full sandbox demo (requires Plaid credentials)   |
 | `make install`       | Install development dependencies                  |
 | `make test`          | Run pytest test suite                             |
 | `make fmt`           | Format code with ruff                             |

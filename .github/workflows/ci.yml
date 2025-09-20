@@ -418,3 +418,68 @@ jobs:
           # pfetl report --period daily --out build/                # publish only after reconcile
           echo "Real Plaid integration not yet implemented"
           exit 0
+
+  quick-start-validation:
+    name: "Quick Start Promise (≤90s)"
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'  # Skip on nightly runs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: 'requirements-core.txt'
+      - name: Install core dependencies only
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-core.txt
+      - name: Validate Tier 0 (Offline Demo ≤90s)
+        run: |
+          echo "🚀 Testing Tier 0: Offline Demo (SQLite + fixtures, ≤90s)"
+          echo "Starting timer..."
+          START_TIME=$(date +%s)
+
+          # Run the offline demo
+          PFETL_SKIP_DOTENV=1 python3 cli.py demo --offline --out build
+
+          # Calculate elapsed time
+          END_TIME=$(date +%s)
+          ELAPSED=$((END_TIME - START_TIME))
+
+          echo "⏱️  Elapsed time: ${ELAPSED}s"
+
+          # Validate time constraint
+          if [ $ELAPSED -gt 90 ]; then
+            echo "❌ FAILED: Demo took ${ELAPSED}s (>90s limit)"
+            exit 1
+          fi
+
+          echo "✅ SUCCESS: Demo completed in ${ELAPSED}s (≤90s)"
+
+          # Validate outputs exist
+          if [ ! -f "build/demo_recon.json" ]; then
+            echo "❌ FAILED: Missing build/demo_recon.json"
+            exit 1
+          fi
+
+          if [ ! -f "build/demo_bs_2024q1.html" ]; then
+            echo "❌ FAILED: Missing build/demo_bs_2024q1.html"
+            exit 1
+          fi
+
+          if [ ! -f "build/demo_cf_2024q1.html" ]; then
+            echo "❌ FAILED: Missing build/demo_cf_2024q1.html"
+            exit 1
+          fi
+
+          echo "✅ All required outputs generated successfully"
+      - name: Upload quick start artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quick-start-outputs
+          path: |
+            build/demo_recon.json
+            build/demo_bs_2024q1.html
+            build/demo_cf_2024q1.html

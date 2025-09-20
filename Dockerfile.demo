@@ -10,7 +10,7 @@ WORKDIR /app
 
 # Install minimal dependencies for core functionality
 COPY requirements-core.txt .
-RUN pip install --no-cache-dir -r requirements-core.txt
+RUN pip install --no-cache-dir --require-hashes -r requirements-core.txt
 
 # Copy application code
 COPY . .
