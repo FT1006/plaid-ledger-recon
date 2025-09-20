@@ -1,0 +1,10 @@
+[
+  {
+    "plaid_account_id": "demo_checking_123",
+    "account_id": "assets_bank_checking"
+  },
+  {
+    "plaid_account_id": "demo_savings_456",
+    "account_id": "assets_bank_savings"
+  }
+]

@@ -1,0 +1,16 @@
+[
+  {
+    "item_id": "demo_item_2024q1",
+    "plaid_account_id": "demo_checking_123",
+    "name": "Demo Checking Account",
+    "type": "depository",
+    "subtype": "checking"
+  },
+  {
+    "item_id": "demo_item_2024q1",
+    "plaid_account_id": "demo_savings_456",
+    "name": "Demo Savings Account",
+    "type": "depository",
+    "subtype": "savings"
+  }
+]

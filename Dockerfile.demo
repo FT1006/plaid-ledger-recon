@@ -1,0 +1,25 @@
+# Demo-specific Dockerfile for deterministic containerized demos
+FROM python:3.12-slim@sha256:5dc6f84b5e2d3d5d56d42b72a24ee36d9e7ff061e1f11b3b4b5a9b8a6f1e3b8f
+
+# Set deterministic environment
+ENV LC_ALL=C.UTF-8
+ENV TZ=UTC
+ENV PFETL_NO_EGRESS=1
+
+WORKDIR /app
+
+# Install minimal dependencies for core functionality
+COPY requirements-core.txt .
+RUN pip install --no-cache-dir -r requirements-core.txt
+
+# Copy application code
+COPY . .
+
+# Install the package in core mode
+RUN pip install -e ".[core]"
+
+# Create build directory
+RUN mkdir -p /app/build
+
+# Default command
+CMD ["python3", "cli.py", "demo", "--docker"]

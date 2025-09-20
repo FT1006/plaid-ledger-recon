@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """CLI interface for Plaid Financial ETL pipeline."""
 
+import importlib.util
 import json
 import logging
 import os
+import platform
+import shutil
+import subprocess
+import sys
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Annotated, Any
@@ -15,6 +20,7 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from etl.connectors.plaid_client import create_plaid_client_from_env
+from etl.demo import create_demo_engine, get_demo_balances, load_demo_fixtures
 from etl.extract import fetch_accounts, sync_transactions
 from etl.load import (
     link_plaid_to_account,
@@ -49,14 +55,6 @@ def _load_env() -> None:
     if os.getenv("PFETL_SKIP_DOTENV") != "1":
         load_dotenv(override=False)  # Never override already-set env in CI/tests
 
-    # Fail fast if DATABASE_URL missing (prevent silent fallbacks)
-    if not os.getenv("DATABASE_URL"):
-        typer.echo(
-            "Error: DATABASE_URL not set. Please set it via environment or .env file.",
-            err=True,
-        )
-        raise typer.Exit(2)
-
 
 def _parse_date(value: str) -> date:
     """Parse date string in YYYY-MM-DD format."""
@@ -76,7 +74,10 @@ def init_db() -> None:
 
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
-        typer.echo(f"{_mark_error()} DATABASE_URL not found in environment", err=True)
+        typer.echo(
+            "Error: DATABASE_URL not set. Please set it via environment or .env file.",
+            err=True,
+        )
         raise typer.Exit(2)
 
     schema_path = Path(__file__).parent / "etl" / "schema.sql"
@@ -669,6 +670,256 @@ def list_plaid_accounts(  # noqa: PLR0912
     except Exception as e:
         typer.echo(f"{_mark_error()} Failed to list accounts: {e}", err=True)
         raise typer.Exit(1) from e
+
+
+@app.command("demo")
+def demo(
+    offline: Annotated[
+        bool,
+        typer.Option("--offline", help="Use SQLite in-memory database (fastest)"),
+    ] = False,
+    docker: Annotated[
+        bool,
+        typer.Option("--docker", help="Use Postgres via Docker (full stack)"),
+    ] = False,
+    out: Annotated[
+        str,
+        typer.Option("--out", help="Output directory for reports"),
+    ] = "build",
+) -> None:
+    """Run offline demo with fixture data (no Plaid credentials required)."""
+    # Set deterministic environment
+    os.environ["LC_ALL"] = "C.UTF-8"
+    os.environ["TZ"] = "UTC"
+    os.environ["PFETL_NO_EGRESS"] = "1"  # Block all HTTP calls
+
+    # Validate mode selection
+    if offline and docker:
+        typer.echo("Error: Cannot use both --offline and --docker modes", err=True)
+        raise typer.Exit(2)
+
+    if not offline and not docker:
+        offline = True  # Default to offline mode
+
+    def _raise_database_url_error() -> None:
+        typer.echo(
+            f"{_mark_error()} Docker mode requires DATABASE_URL environment variable",
+            err=True,
+        )
+        raise typer.Exit(2)
+
+    def _raise_reconciliation_failed() -> None:
+        typer.echo("❌ Reconciliation: FAILED")
+        raise typer.Exit(1)
+
+    try:
+        if offline:
+            typer.echo("🚀 Starting offline demo (SQLite + fixtures)...")
+
+            # Create in-memory SQLite database with fixtures
+            engine = create_demo_engine()
+
+            with engine.begin() as conn:
+                load_demo_fixtures(conn)
+                typer.echo(f"{_mark_success()} Demo database initialized with fixtures")
+
+        else:  # docker mode
+            typer.echo("🚀 Starting Docker demo (Postgres + fixtures)...")
+
+            # Check for DATABASE_URL since we need it for docker mode
+            database_url = os.getenv("DATABASE_URL")
+            if not database_url:
+                typer.echo(
+                    f"{_mark_error()} Docker mode requires DATABASE_URL",
+                    err=True,
+                )
+                _raise_database_url_error()
+
+            # mypy: database_url is guaranteed to be str here due to check above
+            engine = create_engine(database_url)  # type: ignore[arg-type]
+
+            with engine.begin() as conn:
+                load_demo_fixtures(conn)
+                typer.echo(f"{_mark_success()} Demo fixtures loaded into Postgres")
+
+        # Run reconciliation with demo data
+        demo_balances = get_demo_balances()
+        item_id = "demo_item_2024q1"
+        period = "2024Q1"
+
+        with engine.begin() as conn:
+            result = run_reconciliation(
+                conn, period=period, item_id=item_id, plaid_balances=demo_balances
+            )
+
+        # Write reconciliation results
+        out_path = Path(out)
+        out_path.mkdir(parents=True, exist_ok=True)
+
+        recon_file = out_path / "demo_recon.json"
+        with recon_file.open("w") as f:
+            json.dump(result, f, indent=2, default=str)
+
+        typer.echo(f"{_mark_success()} Reconciliation: {recon_file}")
+
+        # Generate reports
+        # Balance Sheet
+        bs_html = render_balance_sheet(period, engine)
+        bs_file = out_path / f"demo_bs_{period.lower()}.html"
+        bs_file.write_text(bs_html, encoding="utf-8")
+        typer.echo(f"{_mark_success()} Balance Sheet: {bs_file}")
+
+        # Cash Flow
+        cf_html = render_cash_flow(period, engine)
+        cf_file = out_path / f"demo_cf_{period.lower()}.html"
+        cf_file.write_text(cf_html, encoding="utf-8")
+        typer.echo(f"{_mark_success()} Cash Flow: {cf_file}")
+
+        # Success summary
+        mode_desc = "SQLite (offline)" if offline else "Postgres (Docker)"
+        typer.echo(f"\n{_mark_success()} Demo completed successfully using {mode_desc}")
+        typer.echo(f"📂 Generated files in: {out_path.absolute()}")
+
+        # Show reconciliation result
+        if result.get("success"):
+            typer.echo(
+                f"✅ Reconciliation: PASSED (variance: {result.get('total_variance', 0):.2f})"  # noqa: E501
+            )
+        else:
+            _raise_reconciliation_failed()
+
+    except Exception as e:
+        typer.echo(f"{_mark_error()} Demo failed: {e}", err=True)
+        raise typer.Exit(1) from e
+
+
+@app.command("doctor")
+def _check_dependency(module_name: str) -> bool:
+    """Check if a module is available without importing it."""
+    return importlib.util.find_spec(module_name) is not None
+
+
+def _check_python_version() -> bool:
+    """Check Python version requirement."""
+    py_version = sys.version_info
+    typer.echo(
+        f"Python version: {py_version.major}.{py_version.minor}.{py_version.micro}"
+    )
+    if py_version < (3, 11):
+        version_str = f"{py_version.major}.{py_version.minor}.{py_version.micro}"
+        typer.echo(f"{_mark_error()} Python 3.11+ required, found {version_str}")
+        return False
+    typer.echo(f"{_mark_success()} Python version OK")
+    return True
+
+
+def _check_docker() -> bool:
+    """Check Docker availability and status."""
+    docker_path = shutil.which("docker")
+    if docker_path is None:
+        typer.echo(f"{_mark_error()} Docker not found in PATH")
+        return False
+
+    try:
+        result = subprocess.run(  # noqa: S603
+            [docker_path, "info"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            typer.echo(f"{_mark_success()} Docker is running")
+            return True
+        typer.echo(f"{_mark_error()} Docker daemon not running")
+        return False  # noqa: TRY300
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        typer.echo(f"{_mark_error()} Docker not responding")
+        return False
+
+
+def _check_database() -> bool:
+    """Check database connection if configured."""
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        typer.echo("i  DATABASE_URL not set (OK for offline demo)")
+        return True
+
+    typer.echo(f"Database URL: {database_url[:20]}...")
+    try:
+        engine = create_engine(database_url)
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception as e:
+        typer.echo(f"{_mark_error()} Database connection failed: {e}")
+        return False
+    else:
+        typer.echo(f"{_mark_success()} Database connection OK")
+        return True
+
+
+def _check_plaid_credentials() -> None:
+    """Check Plaid credentials (informational only)."""
+    plaid_client_id = os.getenv("PLAID_CLIENT_ID")
+    plaid_secret = os.getenv("PLAID_SECRET")
+    if plaid_client_id and plaid_secret:
+        typer.echo(f"{_mark_success()} Plaid credentials found")
+    else:
+        typer.echo("i  Plaid credentials not set (OK for offline demo)")
+
+
+def _check_dependencies() -> bool:
+    """Check Python package dependencies."""
+    if (
+        _check_dependency("httpx")
+        and _check_dependency("jinja2")
+        and _check_dependency("sqlalchemy")
+    ):
+        typer.echo(f"{_mark_success()} Core dependencies available")
+        success = True
+    else:
+        typer.echo(f"{_mark_error()} Missing core dependencies")
+        success = False
+
+    if _check_dependency("weasyprint"):
+        typer.echo(f"{_mark_success()} WeasyPrint available (PDF support)")
+    else:
+        typer.echo("i  WeasyPrint not available (PDF disabled, HTML reports only)")
+
+    return success
+
+
+def doctor() -> None:
+    """Run preflight checks for system dependencies and configuration."""
+    typer.echo("🔍 Running system preflight checks...\n")
+
+    # Platform info
+    typer.echo(f"Platform: {platform.system()} {platform.release()}")
+
+    # Run all checks
+    checks = [
+        _check_python_version(),
+        _check_docker(),
+        _check_database(),
+        _check_dependencies(),
+    ]
+    _check_plaid_credentials()  # Informational only
+
+    all_good = all(checks)
+
+    # Summary
+    typer.echo()
+    if all_good:
+        typer.echo(f"{_mark_success()} All checks passed! System ready for pfetl")
+        typer.echo("\nRecommended next steps:")
+        typer.echo("  make demo-offline    # Quick start (no dependencies)")
+        typer.echo("  make demo-docker     # Full stack demo")
+        typer.echo("  make demo-sandbox    # Plaid sandbox (requires credentials)")
+    else:
+        typer.echo(f"{_mark_error()} Some checks failed. See errors above.")
+        typer.echo("\nFor offline demo only:")
+        typer.echo("  make demo-offline    # Works without Docker/DB")
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":

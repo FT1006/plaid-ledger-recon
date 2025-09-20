@@ -1,0 +1,62 @@
+[
+  {
+    "entry_id": "demo_entry_001",
+    "account_id": "expenses_dining_restaurants",
+    "side": "debit",
+    "amount": "25.50"
+  },
+  {
+    "entry_id": "demo_entry_001",
+    "account_id": "assets_bank_checking",
+    "side": "credit",
+    "amount": "25.50"
+  },
+  {
+    "entry_id": "demo_entry_002",
+    "account_id": "expenses_groceries",
+    "side": "debit",
+    "amount": "87.42"
+  },
+  {
+    "entry_id": "demo_entry_002",
+    "account_id": "assets_bank_checking",
+    "side": "credit",
+    "amount": "87.42"
+  },
+  {
+    "entry_id": "demo_entry_003",
+    "account_id": "expenses_transport_gas",
+    "side": "debit",
+    "amount": "45.00"
+  },
+  {
+    "entry_id": "demo_entry_003",
+    "account_id": "assets_bank_checking",
+    "side": "credit",
+    "amount": "45.00"
+  },
+  {
+    "entry_id": "demo_entry_004",
+    "account_id": "assets_bank_checking",
+    "side": "debit",
+    "amount": "5000.00"
+  },
+  {
+    "entry_id": "demo_entry_004",
+    "account_id": "revenue_salary",
+    "side": "credit",
+    "amount": "5000.00"
+  },
+  {
+    "entry_id": "demo_entry_005",
+    "account_id": "assets_bank_savings",
+    "side": "debit",
+    "amount": "1000.00"
+  },
+  {
+    "entry_id": "demo_entry_005",
+    "account_id": "assets_bank_checking",
+    "side": "credit",
+    "amount": "1000.00"
+  }
+]

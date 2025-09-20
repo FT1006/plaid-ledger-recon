@@ -11,6 +11,9 @@ help:
 	@echo "  typecheck    - Alias for type (backwards compatibility)"
 	@echo "  ship         - Full quality gate (format check + strict lint + strict types)"
 	@echo "  ci           - Alias for ship (CI compatibility)"
+	@echo "  demo-offline - Quick offline demo (SQLite + fixtures, ≤90s)"
+	@echo "  demo-docker  - Docker demo (Postgres + fixtures, deterministic)"
+	@echo "  demo-sandbox - Full sandbox demo (requires Plaid credentials)"
 	@echo "  run-onboard  - Run onboard command in sandbox mode"
 	@echo "  seed-coa     - Seed GL accounts (required before ingest)"
 	@echo "  demo-balances - Generate demo balances from GL (as-of PERIOD_END)"
@@ -128,3 +131,43 @@ clean:
 	rm -rf *.egg-info/
 	find . -type d -name __pycache__ -exec rm -rf {} +
 	find . -type f -name "*.pyc" -delete
+
+# Demo targets (tiered quick start)
+demo-offline:
+	@echo "🚀 Running Tier 0: Offline Demo (SQLite + fixtures)"
+	@echo "⚡ Quick start: No dependencies except Python, ≤90s"
+	@mkdir -p build
+	PFETL_SKIP_DOTENV=1 python3 cli.py demo --offline --out build
+	@echo ""
+	@echo "✅ Demo completed! Check build/ for reports"
+	@echo "   - build/demo_recon.json (reconciliation results)"
+	@echo "   - build/demo_bs_2024q1.html (balance sheet)"
+	@echo "   - build/demo_cf_2024q1.html (cash flow)"
+
+demo-docker:
+	@echo "🚀 Running Tier 1: Docker Demo (Postgres + fixtures)"
+	@echo "📦 Full stack demo with deterministic output"
+	@if ! docker info >/dev/null 2>&1; then \
+		echo "❌ Docker is not running. Please start Docker first."; \
+		exit 1; \
+	fi
+	docker compose -f docker-compose.demo.yml up --build
+	@echo ""
+	@echo "✅ Demo completed! Check build/ for reports"
+
+demo-sandbox:
+	@echo "🚀 Running Tier 2: Full Sandbox Demo (requires Plaid credentials)"
+	@echo "🔑 Requires: PLAID_CLIENT_ID, PLAID_SECRET, DATABASE_URL"
+	@if [ -z "$$PLAID_CLIENT_ID" ] || [ -z "$$PLAID_SECRET" ]; then \
+		echo "❌ Missing Plaid credentials. Set PLAID_CLIENT_ID and PLAID_SECRET"; \
+		exit 1; \
+	fi
+	make db-up
+	python3 cli.py init-db
+	make seed-coa
+	@echo "Run the following commands manually:"
+	@echo "  pfetl onboard --sandbox"
+	@echo "  pfetl ingest --item-id <ITEM_ID> --from 2024-01-01 --to 2024-03-31"
+	@echo "  pfetl map-account --plaid-account-id <ID> --gl-code \"Assets:Bank:Checking\""
+	@echo "  pfetl reconcile --item-id <ITEM_ID> --period 2024Q1 --balances-json build/demo_balances.json --out build/recon.json"
+	@echo "  pfetl report --item-id <ITEM_ID> --period 2024Q1 --formats html,pdf --out build/"

@@ -1,0 +1,52 @@
+[
+  {
+    "id": "demo_entry_001",
+    "item_id": "demo_item_2024q1",
+    "txn_id": "demo_restaurant_001",
+    "txn_date": "2024-01-15",
+    "description": "Restaurant Lunch - Main Street Cafe",
+    "currency": "USD",
+    "source_hash": "demo_hash_restaurant_001",
+    "transform_version": 1
+  },
+  {
+    "id": "demo_entry_002",
+    "item_id": "demo_item_2024q1",
+    "txn_id": "demo_grocery_001",
+    "txn_date": "2024-01-18",
+    "description": "Grocery Store - Weekly Shopping",
+    "currency": "USD",
+    "source_hash": "demo_hash_grocery_001",
+    "transform_version": 1
+  },
+  {
+    "id": "demo_entry_003",
+    "item_id": "demo_item_2024q1",
+    "txn_id": "demo_gas_001",
+    "txn_date": "2024-01-22",
+    "description": "Gas Station - Shell #1234",
+    "currency": "USD",
+    "source_hash": "demo_hash_gas_001",
+    "transform_version": 1
+  },
+  {
+    "id": "demo_entry_004",
+    "item_id": "demo_item_2024q1",
+    "txn_id": "demo_salary_001",
+    "txn_date": "2024-01-31",
+    "description": "Salary Deposit - January 2024",
+    "currency": "USD",
+    "source_hash": "demo_hash_salary_001",
+    "transform_version": 1
+  },
+  {
+    "id": "demo_entry_005",
+    "item_id": "demo_item_2024q1",
+    "txn_id": "demo_transfer_001",
+    "txn_date": "2024-02-01",
+    "description": "Transfer to Savings",
+    "currency": "USD",
+    "source_hash": "demo_hash_transfer_001",
+    "transform_version": 1
+  }
+]

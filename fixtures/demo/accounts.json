@@ -1,0 +1,51 @@
+[
+  {
+    "id": "assets_bank_checking",
+    "code": "Assets:Bank:Checking",
+    "name": "Checking Account",
+    "type": "asset",
+    "is_cash": true
+  },
+  {
+    "id": "assets_bank_savings",
+    "code": "Assets:Bank:Savings",
+    "name": "Savings Account",
+    "type": "asset",
+    "is_cash": true
+  },
+  {
+    "id": "expenses_dining_restaurants",
+    "code": "Expenses:Dining:Restaurants",
+    "name": "Restaurant Dining",
+    "type": "expense",
+    "is_cash": false
+  },
+  {
+    "id": "expenses_groceries",
+    "code": "Expenses:Groceries",
+    "name": "Grocery Shopping",
+    "type": "expense",
+    "is_cash": false
+  },
+  {
+    "id": "expenses_transport_gas",
+    "code": "Expenses:Transport:Gas",
+    "name": "Gas & Fuel",
+    "type": "expense",
+    "is_cash": false
+  },
+  {
+    "id": "revenue_salary",
+    "code": "Revenue:Salary",
+    "name": "Salary Income",
+    "type": "revenue",
+    "is_cash": false
+  },
+  {
+    "id": "liabilities_credit_card",
+    "code": "Liabilities:CreditCard",
+    "name": "Credit Card",
+    "type": "liability",
+    "is_cash": false
+  }
+]
